@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Margin — your study desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EDEFEA;
+    --paper-grid: rgba(31,36,48,0.06);
+    --ink:#1F2430;
+    --ink-soft:#5B6472;
+    --ink-faint:#8A9099;
+    --card:#FFFFFF;
+    --card-edge: rgba(31,36,48,0.10);
+    --pen-blue:#2D5FA3;
+    --pen-blue-soft:#E7EEF8;
+    --pen-amber:#B9790F;
+    --pen-amber-soft:#FBF0DD;
+    --pen-green:#3F7D58;
+    --pen-green-soft:#E8F2EC;
+    --pen-red:#A33C49;
+    --pen-red-soft:#F8E9EB;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      linear-gradient(var(--paper-grid) 1px, transparent 1px) 0 0/100% 28px,
+      linear-gradient(90deg, var(--paper-grid) 1px, transparent 1px) 0 0/28px 100%,
+      var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{max-width:880px;margin:0 auto;padding:28px 20px 60px;}
+  .masthead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:22px;flex-wrap:wrap;}
+  .masthead h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:32px;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+  .masthead p{margin:2px 0 0;color:var(--ink-soft);font-size:13px;}
+  .offline-pill{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color:var(--pen-green);
+    background:var(--pen-green-soft);
+    border:1px solid rgba(63,125,88,0.25);
+    border-radius:20px;
+    padding:4px 10px;
+    white-space:nowrap;
+  }
+
+  .tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:0;padding-bottom:0;}
+  .tab{
+    font-family:'IBM Plex Sans', sans-serif;
+    font-weight:500;
+    font-size:14px;
+    border:1px solid var(--card-edge);
+    border-bottom:none;
+    background:rgba(255,255,255,0.55);
+    color:var(--ink-soft);
+    padding:10px 18px 12px;
+    border-radius:10px 10px 0 0;
+    cursor:pointer;
+    position:relative;
+    top:1px;
+    display:flex;
+    align-items:center;
+    gap:7px;
+    white-space:nowrap;
+    transition:transform .12s ease;
+  }
+  .tab svg{width:15px;height:15px;flex-shrink:0;opacity:.75;}
+  .tab.active{
+    background:var(--card);
+    color:var(--ink);
+    border-color:var(--card-edge);
+    box-shadow:0 -2px 6px rgba(31,36,48,0.05);
+    transform:translateY(-2px);
+    z-index:2;
+  }
+  .tab.active svg{opacity:1;}
+  .tab[data-tab="tutor"].active{border-top:3px solid var(--pen-blue);}
+  .tab[data-tab="cards"].active{border-top:3px solid var(--pen-amber);}
+  .tab[data-tab="timer"].active{border-top:3px solid var(--pen-green);}
+  .tab[data-tab="notes"].active{border-top:3px solid var(--pen-red);}
+
+  .panel{
+    background:var(--card);
+    border:1px solid var(--card-edge);
+    border-radius:0 10px 10px 10px;
+    padding:24px;
+    min-height:420px;
+  }
+  .panel-title{
+    font-family:'Fraunces', serif;
+    font-size:20px;
+    font-weight:600;
+    margin:0 0 4px;
+  }
+  .panel-sub{color:var(--ink-soft);font-size:13px;margin:0 0 20px;}
+
+  button{font-family:inherit;cursor:pointer;}
+  input,textarea,select{font-family:inherit;}
+  .btn{
+    border:1px solid var(--card-edge);
+    background:var(--card);
+    color:var(--ink);
+    border-radius:8px;
+    padding:9px 16px;
+    font-size:13px;
+    font-weight:500;
+    transition:background .12s ease;
+  }
+  .btn:hover{background:var(--paper);}
+  .btn:focus-visible{outline:2px solid var(--pen-blue);outline-offset:2px;}
+  .btn-primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .btn-primary:hover{background:#33394A;}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed;}
+  .btn-sm{padding:5px 10px;font-size:12px;}
+  .btn-danger{color:var(--pen-red);}
+
+  /* ===== TUTOR ===== */
+  #chat-log{display:flex;flex-direction:column;gap:14px;max-height:420px;overflow-y:auto;padding:4px 2px 14px;}
+  .msg{max-width:82%;padding:11px 14px;border-radius:12px;font-size:14px;line-height:1.55;}
+  .msg.user{align-self:flex-end;background:var(--pen-blue-soft);color:var(--ink);border:1px solid rgba(45,95,163,0.18);}
+  .msg.assistant{align-self:flex-start;background:var(--paper);border:1px solid var(--card-edge);white-space:pre-wrap;}
+  .msg.assistant.loading{color:var(--ink-faint);font-style:italic;}
+  .chat-empty{color:var(--ink-faint);font-size:13px;padding:20px 4px;}
+  .chat-input-row{display:flex;gap:8px;margin-top:14px;border-top:1px solid var(--card-edge);padding-top:14px;}
+  .chat-input-row textarea{
+    flex:1;resize:none;border:1px solid var(--card-edge);border-radius:8px;padding:10px 12px;font-size:14px;min-height:42px;max-height:120px;
+  }
+  .chat-input-row textarea:focus-visible{outline:2px solid var(--pen-blue);outline-offset:1px;}
+
+  /* ===== FLASHCARDS ===== */
+  .deck-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:18px;}
+  .deck-chip{
+    font-family:'IBM Plex Mono', monospace;font-size:12px;border:1px solid var(--card-edge);border-radius:20px;padding:5px 12px;background:var(--paper);color:var(--ink-soft);cursor:pointer;
+  }
+  .deck-chip.active{background:var(--pen-amber-soft);border-color:rgba(185,121,15,0.4);color:var(--pen-amber);font-weight:500;}
+  .add-card-form{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;}
+  .add-card-form input, .add-card-form textarea{border:1px solid var(--card-edge);border-radius:8px;padding:8px 10px;font-size:13px;width:100%;}
+  .add-card-form input:focus-visible, .add-card-form textarea:focus-visible{outline:2px solid var(--pen-amber);outline-offset:1px;}
+  .add-card-form textarea{min-height:48px;resize:vertical;grid-column:span 1;}
+  .add-card-form .subj{grid-column:span 2;max-width:220px;}
+  .card-list{display:flex;flex-direction:column;gap:8px;margin-bottom:6px;}
+  .card-row{
+    border:1px solid var(--card-edge);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start;background:var(--paper);
+  }
+  .card-row .front{font-weight:500;font-size:13.5px;}
+  .card-row .back{color:var(--ink-soft);font-size:12.5px;margin-top:2px;}
+  .card-row .tag{font-family:'IBM Plex Mono', monospace;font-size:10.5px;color:var(--pen-amber);margin-bottom:3px;display:block;}
+  .empty-state{color:var(--ink-faint);font-size:13px;padding:20px 4px;text-align:center;border:1px dashed var(--card-edge);border-radius:8px;}
+
+  .quiz-wrap{display:flex;flex-direction:column;align-items:center;gap:16px;}
+  .flip-card{
+    width:100%;max-width:420px;height:220px;border:1px solid var(--card-edge);border-radius:14px;background:var(--card);
+    display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-size:17px;line-height:1.5;cursor:pointer;
+    box-shadow:0 1px 0 var(--card-edge);transition:transform 0.2s ease;
+  }
+  .flip-card:focus-visible{outline:2px solid var(--pen-amber);outline-offset:2px;}
+  .flip-card:hover{transform:scale(1.02);}
+  .flip-card.flipped{background:var(--pen-amber-soft);border-color:rgba(185,121,15,0.3);}
+  .flip-hint{font-size:11px;color:var(--ink-faint);margin-top:-8px;}
+  .quiz-controls{display:flex;gap:10px;}
+  .quiz-progress{font-family:'IBM Plex Mono', monospace;font-size:12px;color:var(--ink-soft);}
+
+  /* ===== TIMER ===== */
+  .timer-wrap{display:flex;flex-direction:column;align-items:center;gap:18px;}
+  .ring-wrap{position:relative;width:220px;height:220px;}
+  .ring-wrap svg{transform:rotate(-90deg);}
+  .ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+  .ring-time{font-family:'IBM Plex Mono', monospace;font-size:34px;font-weight:500;}
+  .ring-mode{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);margin-top:2px;}
+  .timer-controls{display:flex;gap:10px;}
+  .timer-settings{display:flex;gap:18px;justify-content:center;flex-wrap:wrap;font-size:12px;color:var(--ink-soft);}
+  .timer-settings label{display:flex;flex-direction:column;gap:4px;align-items:center;}
+  .timer-settings input{width:64px;border:1px solid var(--card-edge);border-radius:6px;padding:5px 7px;font-size:13px;text-align:center;}
+  .cycle-track{display:flex;gap:6px;}
+  .cycle-dot{width:9px;height:9px;border-radius:50%;background:var(--card-edge);}
+  .cycle-dot.done{background:var(--pen-green);}
+
+  /* ===== NOTES ===== */
+  .notes-toolbar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+  .notes-toolbar input[type="text"]{flex:1;min-width:160px;border:1px solid var(--card-edge);border-radius:8px;padding:8px 12px;font-size:13px;}
+  .note-form{display:none;border:1px solid var(--card-edge);border-radius:10px;padding:14px;margin-bottom:16px;background:var(--paper);}
+  .note-form.open{display:block;}
+  .note-form input, .note-form textarea{width:100%;border:1px solid var(--card-edge);border-radius:7px;padding:8px 10px;font-size:13px;margin-bottom:8px;}
+  .note-form input:focus-visible, .note-form textarea:focus-visible{outline:2px solid var(--pen-red);outline-offset:1px;}
+  .note-form textarea{min-height:90px;resize:vertical;}
+  .note-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(220px,1fr));gap:12px;}
+  .note-card{border:1px solid var(--card-edge);border-radius:10px;padding:12px 14px;background:var(--paper);display:flex;flex-direction:column;gap:6px;}
+  .note-card .ntag{font-family:'IBM Plex Mono', monospace;font-size:10.5px;color:var(--pen-red);}
+  .note-card h4{margin:0;font-size:14px;font-weight:600;}
+  .note-card .body{font-size:12.5px;color:var(--ink-soft);line-height:1.5;flex:1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;line-clamp:4;}
+  .note-card .meta{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--ink-faint);margin-top:4px;}
+  .note-card .meta-actions{display:flex;gap:6px;}
+  .icon-btn{border:none;background:none;color:var(--ink-faint);cursor:pointer;padding:2px;}
+  .icon-btn:hover{color:var(--ink);}
+  .icon-btn[title]{position:relative;}
+  .icon-btn[title]:hover::after{
+    content:attr(title);
+    position:absolute;bottom:120%;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#fff;padding:4px 8px;border-radius:4px;font-size:11px;white-space:nowrap;z-index:10;
+  }
+
+  .row{display:flex;gap:8px;flex-wrap:wrap;}
+  .hidden{display:none !important;}
+  .footnote{font-size:11.5px;color:var(--ink-faint);margin-top:18px;border-top:1px solid var(--card-edge);padding-top:12px;}
+
+  @media (max-width:540px){
+    .add-card-form{grid-template-columns:1fr;}
+    .add-card-form .subj{max-width:none;}
+    .masthead h1{font-size:26px;}
+    .ring-wrap{width:180px;height:180px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="masthead">
+    <div>
+      <h1>Margin</h1>
+      <p>One desk for asking, drilling, focusing, and writing it down.</p>
+    </div>
+    <span class="offline-pill" id="net-pill">● flashcards · timer · notes work offline</span>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="tutor" role="tab" aria-selected="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Tutor
+    </button>
+    <button class="tab" data-tab="cards" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="14" height="12" rx="2"/><path d="M7 3h14v12"/></svg>
+      Flashcards
+    </button>
+    <button class="tab" data-tab="timer" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg>
+      Timer
+    </button>
+    <button class="tab" data-tab="notes" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+      Notes
+    </button>
+  </div>
+
+  <!-- ===================== TUTOR ===================== -->
+  <section class="panel" id="panel-tutor">
+    <p class="panel-title">Ask anything</p>
+    <p class="panel-sub">Works across subjects. This is the one tab that needs an internet connection.</p>
+    <div id="chat-log">
+      <div class="chat-empty" id="chat-empty">Ask about a concept, a past-paper question, or get a worked example. e.g. "Walk me through Gaussian elimination on a 3x3 system."</div>
+    </div>
+    <div class="chat-input-row">
+      <textarea id="chat-input" placeholder="Type your question…" rows="1"></textarea>
+      <button class="btn btn-primary" id="chat-send">Ask</button>
+    </div>
+  </section>
+
+  <!-- ===================== FLASHCARDS ===================== -->
+  <section class="panel hidden" id="panel-cards">
+    <p class="panel-title">Flashcards</p>
+    <p class="panel-sub">Add cards by subject, then drill them in quiz mode. Stored only in this session — export before you close the tab.</p>
+
+    <div id="cards-build">
+      <div class="add-card-form">
+        <input type="text" id="card-front" placeholder="Front — question or term">
+        <textarea id="card-back" placeholder="Back — answer or definition"></textarea>
+        <input type="text" id="card-subject" class="subj" list="subject-list" placeholder="Subject e.g. Calculus">
+        <datalist id="subject-list"></datalist>
+      </div>
+      <div class="row" style="margin-bottom:18px;">
+        <button class="btn btn-primary" id="add-card-btn">Add card</button>
+        <button class="btn" id="export-cards-btn">Export deck (.json)</button>
+        <button class="btn" id="import-cards-btn">Import deck (.json)</button>
+        <input type="file" id="import-cards-file" accept=".json" class="hidden">
+      </div>
+
+      <div class="deck-bar" id="deck-bar"></div>
+      <div class="card-list" id="card-list"></div>
+      <div class="empty-state hidden" id="cards-empty">No cards yet. Add your first one above.</div>
+
+      <div class="row" style="margin-top:18px;">
+        <button class="btn btn-primary" id="start-quiz-btn">Study this deck</button>
+      </div>
+    </div>
+
+    <div id="cards-quiz" class="hidden">
+      <div class="quiz-wrap">
+        <div class="quiz-progress" id="quiz-progress"></div>
+        <div class="flip-card" id="flip-card" role="button" tabindex="0"></div>
+        <div class="flip-hint">Tap the card or press Space to flip</div>
+        <div class="quiz-controls">
+          <button class="btn" id="quiz-again-btn">Review again</button>
+          <button class="btn btn-primary" id="quiz-got-it-btn">Got it</button>
+        </div>
+        <button class="btn btn-sm" id="quiz-exit-btn">End session</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TIMER ===================== -->
+  <section class="panel hidden" id="panel-timer">
+    <p class="panel-title">Focus timer</p>
+    <p class="panel-sub">Pomodoro-style: work, then break, on repeat. Fully offline.</p>
+    <div class="timer-wrap">
+      <div class="ring-wrap">
+        <svg width="220" height="220" viewBox="0 0 220 220">
+          <circle cx="110" cy="110" r="98" fill="none" stroke="var(--paper-grid)" stroke-width="10"/>
+          <circle id="ring-progress" cx="110" cy="110" r="98" fill="none" stroke="var(--pen-green)" stroke-width="10" stroke-linecap="round" stroke-dasharray="615.75" stroke-dashoffset="0"/>
+        </svg>
+        <div class="ring-label">
+          <div class="ring-time" id="ring-time">25:00</div>
+          <div class="ring-mode" id="ring-mode">Work session</div>
+        </div>
+      </div>
+      <div class="cycle-track" id="cycle-track"></div>
+      <div class="timer-controls">
+        <button class="btn btn-primary" id="timer-start-btn">Start</button>
+        <button class="btn" id="timer-reset-btn">Reset</button>
+      </div>
+      <div class="timer-settings">
+        <label>Work (min)<input type="number" id="work-min" value="25" min="1" max="120"></label>
+        <label>Break (min)<input type="number" id="break-min" value="5" min="1" max="60"></label>
+        <label>Long break (min)<input type="number" id="long-min" value="15" min="1" max="60"></label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== NOTES ===================== -->
+  <section class="panel hidden" id="panel-notes">
+    <p class="panel-title">Notes</p>
+    <p class="panel-sub">Quick write-ups by subject. Stored only in this session — export before you close the tab.</p>
+
+    <div class="notes-toolbar">
+      <input type="text" id="notes-search" placeholder="Search notes…">
+      <button class="btn btn-primary" id="new-note-btn">New note</button>
+      <button class="btn" id="export-notes-btn">Export (.json)</button>
+      <button class="btn" id="import-notes-btn">Import (.json)</button>
+      <input type="file" id="import-notes-file" accept=".json" class="hidden">
+    </div>
+
+    <div class="note-form" id="note-form">
+      <input type="text" id="note-title" placeholder="Title">
+      <input type="text" id="note-tag" placeholder="Subject tag e.g. Operating Systems">
+      <textarea id="note-body" placeholder="Write your note…"></textarea>
+      <div class="row">
+        <button class="btn btn-primary" id="save-note-btn">Save note</button>
+        <button class="btn" id="cancel-note-btn">Cancel</button>
+      </div>
+    </div>
+
+    <div class="note-grid" id="note-grid"></div>
+    <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" to start one.</div>
+  </section>
+
+  <p class="footnote">Tutor calls Claude over the network. Flashcards, the timer, and notes run entirely in your browser — they keep working with no connection, but data here lives only for this tab session, so export decks/notes you want to keep.</p>
+</div>
+
+<script>
+/* ============================================
+   MARGIN - Study Desk
+   A complete study suite with tutor, flashcards, timer, and notes
+   All data is session-only. Export to persist.
+   ============================================ */
+
+/* ---------- Utilities ---------- */
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// Better shuffle algorithm (Fisher-Yates)
+function shuffleArray(arr){
+  const copy = [...arr];
+  for(let i = copy.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+/* ========== TAB SWITCHING ========== */
+const tabs = document.querySelectorAll('.tab');
+const panels = { tutor:'panel-tutor', cards:'panel-cards', timer:'panel-timer', notes:'panel-notes' };
+tabs.forEach(t=>t.addEventListener('click', ()=>{
+  tabs.forEach(x=>{x.classList.remove('active');x.setAttribute('aria-selected','false');});
+  t.classList.add('active'); t.setAttribute('aria-selected','true');
+  Object.values(panels).forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById(panels[t.dataset.tab]).classList.remove('hidden');
+}));
+
+/* ========== TUTOR ========== */
+const chatLog = document.getElementById('chat-log');
+const chatEmpty = document.getElementById('chat-empty');
+const chatInput = document.getElementById('chat-input');
+const chatSend = document.getElementById('chat-send');
+let chatHistory = [];
+
+function addMsg(role, text){
+  if(chatEmpty) chatEmpty.remove();
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  chatLog.appendChild(div);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  return div;
+}
+
+async function sendChat(){
+  const q = chatInput.value.trim();
+  if(!q) return;
+  chatInput.value='';
+  chatSend.disabled = true;
+  addMsg('user', q);
+  chatHistory.push({role:'user', content:q});
+  const loadingEl = addMsg('assistant loading', 'Thinking…');
+
+  try{
+    const res = await Promise.race([
+      fetch('/api/tutor', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({messages: chatHistory})
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000))
+    ]);
+    if(!res.ok) throw new Error(`Server error: ${res.status}`);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+    const textBlock = data.text || 'No response received.';
+    loadingEl.remove();
+    addMsg('assistant', textBlock);
+    chatHistory.push({role:'assistant', content: textBlock});
+    if(chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+  }catch(err){
+    loadingEl.remove();
+    if(err.message === 'Timeout'){
+      addMsg('assistant', 'The tutor is taking too long to respond — try again in a moment.');
+    } else if(err instanceof TypeError){
+      addMsg('assistant', 'Could not reach the server — check your connection.');
+    } else {
+      addMsg('assistant', `Error: ${err.message}`);
+    }
+  }finally{
+    chatSend.disabled = false;
+  }
+}
+chatSend.addEventListener('click', sendChat);
+chatInput.addEventListener('keydown', e=>{
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendChat(); }
+});
+chatInput.addEventListener('input', ()=>{
+  chatInput.style.height='auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight,120)+'px';
+});
+
+/* ========== FLASHCARDS ========== */
+let cards = [];
+let activeSubject = 'all';
+let quizDeck = [], quizIndex = 0, quizFlipped = false, quizCorrect = 0, quizMissed = [];
+
+function renderSubjectList(){
+  const subs = [...new Set(cards.map(c=>c.subject).filter(Boolean))];
+  document.getElementById('subject-list').innerHTML = subs.map(s=>`<option value="${escapeHtml(s)}">`).join('');
+}
+
+function renderDeckBar(){
+  const subs = [...new Set(cards.map(c=>c.subject || 'General'))];
+  const bar = document.getElementById('deck-bar');
+  if(subs.length===0){ bar.innerHTML=''; return; }
+  let html = `<button class="deck-chip ${activeSubject==='all'?'active':''}" data-subj="all">All (${cards.length})</button>`;
+  subs.forEach(s=>{
+    const count = cards.filter(c=>(c.subject||'General')===s).length;
+    html += `<button class="deck-chip ${activeSubject===s?'active':''}" data-subj="${escapeHtml(s)}">${escapeHtml(s)} (${count})</button>`;
+  });
+  bar.innerHTML = html;
+  bar.querySelectorAll('.deck-chip').forEach(b=>b.addEventListener('click', ()=>{ activeSubject=b.dataset.subj; renderDeckBar(); renderCardList(); }));
+}
+
+function filteredCards(){
+  return activeSubject==='all' ? cards : cards.filter(c=>(c.subject||'General')===activeSubject);
+}
+
+function renderCardList(){
+  const list = document.getElementById('card-list');
+  const empty = document.getElementById('cards-empty');
+  const fc = filteredCards();
+  if(fc.length===0){ list.innerHTML=''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  list.innerHTML = fc.map(c=>`
+    <div class="card-row">
+      <div>
+        <span class="tag">${escapeHtml(c.subject||'General')}</span>
+        <div class="front">${escapeHtml(c.front)}</div>
+        <div class="back">${escapeHtml(c.back)}</div>
+      </div>
+      <button class="icon-btn btn-danger" data-del="${c.id}" aria-label="Delete card" title="Delete">✕</button>
+    </div>
+  `).join('');
+  list.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
+    if(confirm('Are you sure you want to delete this card?')){
+      cards = cards.filter(c=>c.id!==b.dataset.del);
+      renderDeckBar(); renderCardList(); renderSubjectList();
+    }
+  }));
+}
+
+document.getElementById('add-card-btn').addEventListener('click', ()=>{
+  const front = document.getElementById('card-front').value.trim();
+  const back = document.getElementById('card-back').value.trim();
+  const subject = document.getElementById('card-subject').value.trim();
+  if(!front){
+    alert('Please enter the front of the card.');
+    return;
+  }
+  if(!back){
+    alert('Please enter the back of the card.');
+    return;
+  }
+  if(front.length > 500 || back.length > 1000){
+    alert('Card text is too long (front: max 500 chars, back: max 1000 chars).');
+    return;
+  }
+  cards.push({id:uid(), front, back, subject});
+  document.getElementById('card-front').value='';
+  document.getElementById('card-back').value='';
+  document.getElementById('card-subject').value='';
+  renderDeckBar(); renderCardList(); renderSubjectList();
+});
+
+document.getElementById('export-cards-btn').addEventListener('click', ()=>{
+  downloadJSON(cards, 'margin-flashcards.json');
+});
+document.getElementById('import-cards-btn').addEventListener('click', ()=>document.getElementById('import-cards-file').click());
+document.getElementById('import-cards-file').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  readJSONFile(file, data=>{
+    if(!Array.isArray(data)){
+      alert('Invalid file format — must be a JSON array of cards.');
+      return;
+    }
+    const imported = data.filter(c=>c.front && c.back).length;
+    data.forEach(c=>{ if(c.front && c.back) cards.push({id:uid(), front:c.front, back:c.back, subject:c.subject||''}); });
+    alert(`Imported ${imported} cards successfully.`);
+    renderDeckBar(); renderCardList(); renderSubjectList();
+    e.target.value = '';
+  });
+});
+
+document.getElementById('start-quiz-btn').addEventListener('click', ()=>{
+  quizDeck = shuffleArray(filteredCards());
+  if(quizDeck.length===0) return;
+  quizIndex=0; quizFlipped=false; quizCorrect=0; quizMissed=[];
+  document.getElementById('cards-build').classList.add('hidden');
+  document.getElementById('cards-quiz').classList.remove('hidden');
+  renderQuizCard();
+});
+
+function renderQuizCard(){
+  const progress = document.getElementById('quiz-progress');
+  const flip = document.getElementById('flip-card');
+  if(quizIndex >= quizDeck.length){
+    progress.textContent = `Session complete — ${quizCorrect}/${quizDeck.length} got it`;
+    flip.textContent = quizMissed.length ? `Review later: ${quizMissed.length} card(s)` : 'Nice work — full deck cleared.';
+    flip.classList.remove('flipped');
+    document.querySelector('.quiz-controls').classList.add('hidden');
+    return;
+  }
+  document.querySelector('.quiz-controls').classList.remove('hidden');
+  progress.textContent = `Card ${quizIndex+1} of ${quizDeck.length}`;
+  quizFlipped = false;
+  flip.classList.remove('flipped');
+  flip.textContent = quizDeck[quizIndex].front;
+}
+document.getElementById('flip-card').addEventListener('click', ()=>{
+  if(quizIndex >= quizDeck.length) return;
+  quizFlipped = !quizFlipped;
+  const flip = document.getElementById('flip-card');
+  flip.classList.toggle('flipped', quizFlipped);
+  flip.textContent = quizFlipped ? quizDeck[quizIndex].back : quizDeck[quizIndex].front;
+});
+document.getElementById('flip-card').addEventListener('keydown', (e)=>{
+  if(e.key === ' ' || e.key === 'Enter'){
+    e.preventDefault();
+    document.getElementById('flip-card').click();
+  }
+});
+document.getElementById('quiz-got-it-btn').addEventListener('click', ()=>{
+  quizCorrect++; quizIndex++; renderQuizCard();
+});
+document.getElementById('quiz-again-btn').addEventListener('click', ()=>{
+  quizMissed.push(quizDeck[quizIndex]); quizIndex++; renderQuizCard();
+});
+document.getElementById('quiz-exit-btn').addEventListener('click', ()=>{
+  document.getElementById('cards-quiz').classList.add('hidden');
+  document.getElementById('cards-build').classList.remove('hidden');
+});
+
+/* ========== TIMER ========== */
+const RING_CIRC = 2 * Math.PI * 98;
+document.getElementById('ring-progress').setAttribute('stroke-dasharray', RING_CIRC.toFixed(2));
+
+let timer = {
+  mode:'work', // work | break | long
+  remaining: 25*60,
+  total: 25*60,
+  running:false,
+  cyclesDone:0,
+  intervalId:null
+};
+
+function getDurations(){
+  return {
+    work: Math.max(1, parseInt(document.getElementById('work-min').value)||25) * 60,
+    brk: Math.max(1, parseInt(document.getElementById('break-min').value)||5) * 60,
+    long: Math.max(1, parseInt(document.getElementById('long-min').value)||15) * 60
+  };
+}
+
+function renderTimer(){
+  const m = Math.floor(timer.remaining/60).toString().padStart(2,'0');
+  const s = Math.floor(timer.remaining%60).toString().padStart(2,'0');
+  document.getElementById('ring-time').textContent = `${m}:${s}`;
+  const modeLabel = timer.mode==='work' ? 'Work session' : (timer.mode==='long' ? 'Long break' : 'Short break');
+  document.getElementById('ring-mode').textContent = modeLabel;
+  const ratio = timer.remaining/timer.total;
+  document.getElementById('ring-progress').setAttribute('stroke-dashoffset', (RING_CIRC*(1-ratio)).toFixed(2));
+  document.getElementById('ring-progress').style.stroke = timer.mode==='work' ? 'var(--pen-green)' : 'var(--pen-blue)';
+  document.getElementById('timer-start-btn').textContent = timer.running ? 'Pause' : 'Start';
+
+  const track = document.getElementById('cycle-track');
+  track.innerHTML = Array.from({length:4}).map((_,i)=>`<div class="cycle-dot ${i < (timer.cyclesDone%4) ? 'done':''}"></div>`).join('');
+}
+
+function beep(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 660;
+    osc.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime+0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5);
+    osc.start(); osc.stop(ctx.currentTime+0.5);
+  }catch(e){}
+}
+
+function timerTick(){
+  timer.remaining--;
+  if(timer.remaining <= 0){
+    beep();
+    if(timer.mode==='work'){
+      timer.cyclesDone++;
+      const d = getDurations();
+      const isLong = timer.cyclesDone % 4 === 0;
+      timer.mode = isLong ? 'long' : 'break';
+      timer.total = isLong ? d.long : d.brk;
+    } else {
+      const d = getDurations();
+      timer.mode = 'work';
+      timer.total = d.work;
+    }
+    timer.remaining = timer.total;
+  }
+  renderTimer();
+}
+
+document.getElementById('timer-start-btn').addEventListener('click', ()=>{
+  timer.running = !timer.running;
+  if(timer.running){
+    timer.intervalId = setInterval(timerTick, 1000);
+  } else {
+    clearInterval(timer.intervalId);
+  }
+  renderTimer();
+});
+document.getElementById('timer-reset-btn').addEventListener('click', ()=>{
+  clearInterval(timer.intervalId);
+  const d = getDurations();
+  timer = {mode:'work', remaining:d.work, total:d.work, running:false, cyclesDone:0, intervalId:null};
+  renderTimer();
+});
+['work-min','break-min','long-min'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', ()=>{
+    if(!timer.running){
+      const d = getDurations();
+      timer.total = timer.mode==='work' ? d.work : (timer.mode==='long' ? d.long : d.brk);
+      timer.remaining = timer.total;
+      renderTimer();
+    }
+  });
+});
+renderTimer();
+
+/* ========== NOTES ========== */
+let notes = [];
+let editingNoteId = null;
+
+function renderNotes(){
+  const grid = document.getElementById('note-grid');
+  const empty = document.getElementById('notes-empty');
+  const q = document.getElementById('notes-search').value.trim().toLowerCase();
+  const filtered = notes.filter(n =>
+    !q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || (n.tag||'').toLowerCase().includes(q)
+  ).sort((a,b)=>b.updatedAt-a.updatedAt);
+
+  if(filtered.length===0){ grid.innerHTML=''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  grid.innerHTML = filtered.map(n=>`
+      ${n.tag ? `<span class="ntag">${escapeHtml(n.tag)}</span>` : ''}
+      <h4>${escapeHtml(n.title || 'Untitled')}</h4>
+      <div class="body">${escapeHtml(n.body)}</div>
+      <div class="meta">
+        <span>${new Date(n.updatedAt).toLocaleDateString()}</span>
+        <span class="meta-actions">
+          <button class="icon-btn" data-edit="${n.id}" aria-label="Edit note" title="Edit">✎</button>
+          <button class="icon-btn btn-danger" data-del="${n.id}" aria-label="Delete note" title="Delete">✕</button>
+        </span>
+      </div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click', ()=>openNoteForm(b.dataset.edit)));
+  grid.querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click', ()=>{
+    if(confirm('Are you sure you want to delete this note?')){
+      notes = notes.filter(n=>n.id!==b.dataset.del);
+      renderNotes();
+    }
+  }));
+}
+
+function openNoteForm(id){
+  const form = document.getElementById('note-form');
+  form.classList.add('open');
+  if(id){
+    const n = notes.find(x=>x.id===id);
+    editingNoteId = id;
+    document.getElementById('note-title').value = n.title;
+    document.getElementById('note-tag').value = n.tag||'';
+    document.getElementById('note-body').value = n.body;
+  } else {
+    editingNoteId = null;
+    document.getElementById('note-title').value='';
+    document.getElementById('note-tag').value='';
+    document.getElementById('note-body').value='';
+  }
+  document.getElementById('note-title').focus();
+}
+
+document.getElementById('new-note-btn').addEventListener('click', ()=>openNoteForm(null));
+document.getElementById('cancel-note-btn').addEventListener('click', ()=>{
+  document.getElementById('note-form').classList.remove('open');
+});
+document.getElementById('save-note-btn').addEventListener('click', ()=>{
+  const title = document.getElementById('note-title').value.trim();
+  const tag = document.getElementById('note-tag').value.trim();
+  const body = document.getElementById('note-body').value.trim();
+  if(!title && !body){
+    alert('Please add a title or some content.');
+    return;
+  }
+  if(title.length > 200 || body.length > 5000){
+    alert('Note text is too long (title: max 200 chars, body: max 5000 chars).');
+    return;
+  }
+  if(editingNoteId){
+    const n = notes.find(x=>x.id===editingNoteId);
+    n.title=title; n.tag=tag; n.body=body; n.updatedAt=Date.now();
+  } else {
+    notes.push({id:uid(), title, tag, body, updatedAt:Date.now()});
+  }
+  document.getElementById('note-form').classList.remove('open');
+  renderNotes();
+});
+document.getElementById('notes-search').addEventListener('input', renderNotes);
+document.getElementById('export-notes-btn').addEventListener('click', ()=>downloadJSON(notes, 'margin-notes.json'));
+document.getElementById('import-notes-btn').addEventListener('click', ()=>document.getElementById('import-notes-file').click());
+document.getElementById('import-notes-file').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  readJSONFile(file, data=>{
+    if(!Array.isArray(data)){
+      alert('Invalid file format — must be a JSON array of notes.');
+      return;
+    }
+    const imported = data.filter(n=>n.title || n.body).length;
+    data.forEach(n=>{ if(n.title || n.body) notes.push({id:uid(), title:n.title||'', tag:n.tag||'', body:n.body||'', updatedAt:n.updatedAt||Date.now()}); });
+    alert(`Imported ${imported} notes successfully.`);
+    renderNotes();
+    e.target.value = '';
+  });
+});
+
+/* ========== SHARED FILE HELPERS ========== */
+function downloadJSON(data, filename){
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download=filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function readJSONFile(file, cb){
+  if(!file) return;
+  if(file.size > 5 * 1024 * 1024){
+    alert('File is too large (max 5 MB).');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onerror = ()=>{ alert('Could not read file — check permissions.'); };
+  reader.onload = ()=>{
+    try{
+      const data = JSON.parse(reader.result);
+      cb(data);
+    }catch(e){
+      alert('Invalid JSON format — make sure it is a valid export from Margin.');
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* ========== INITIALIZE ========== */
+renderCardList();
+renderNotes();
+</script>
+</body>
+</html>
