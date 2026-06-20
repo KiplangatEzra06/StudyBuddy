@@ -1,0 +1,1913 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Margin - your study desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    :root {
+      --paper: #EDEFEA;
+      --paper-grid: rgba(31, 36, 48, 0.06);
+      --ink: #1F2430;
+      --ink-soft: #5B6472;
+      --ink-faint: #8A9099;
+      --card: #FFFFFF;
+      --card-edge: rgba(31, 36, 48, 0.10);
+      --pen-blue: #2D5FA3;
+      --pen-blue-soft: #E7EEF8;
+      --pen-amber: #B9790F;
+      --pen-amber-soft: #FBF0DD;
+      --pen-green: #3F7D58;
+      --pen-green-soft: #E8F2EC;
+      --pen-red: #A33C49;
+      --pen-red-soft: #F8E9EB;
+      --pen-violet: #6B568E;
+      --pen-violet-soft: #EFEAF6;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background:
+        linear-gradient(var(--paper-grid) 1px, transparent 1px) 0 0/100% 28px,
+        linear-gradient(90deg, var(--paper-grid) 1px, transparent 1px) 0 0/28px 100%,
+        var(--paper);
+      color: var(--ink);
+      font-family: 'IBM Plex Sans', sans-serif;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+    }
+
+    .masthead {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 22px;
+      flex-wrap: wrap;
+    }
+
+    .masthead h1 {
+      font-family: 'Fraunces', serif;
+      font-weight: 600;
+      font-size: 32px;
+      margin: 0;
+    }
+
+    .masthead p {
+      margin: 2px 0 0;
+      color: var(--ink-soft);
+      font-size: 13px;
+    }
+
+    .offline-pill {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--pen-green);
+      background: var(--pen-green-soft);
+      border: 1px solid rgba(63, 125, 88, 0.25);
+      border-radius: 20px;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .tab {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-weight: 500;
+      font-size: 14px;
+      border: 1px solid var(--card-edge);
+      border-bottom: none;
+      background: rgba(255, 255, 255, 0.55);
+      color: var(--ink-soft);
+      padding: 10px 16px 12px;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      position: relative;
+      top: 1px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+      transition: transform .12s ease;
+    }
+
+    .tab svg {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      opacity: .75;
+    }
+
+    .tab.active {
+      background: var(--card);
+      color: var(--ink);
+      box-shadow: 0 -2px 6px rgba(31, 36, 48, 0.05);
+      transform: translateY(-2px);
+      z-index: 2;
+    }
+
+    .tab.active svg {
+      opacity: 1;
+    }
+
+    .tab[data-tab="documents"].active {
+      border-top: 3px solid var(--pen-violet);
+    }
+
+    .tab[data-tab="tutor"].active {
+      border-top: 3px solid var(--pen-blue);
+    }
+
+    .tab[data-tab="cards"].active {
+      border-top: 3px solid var(--pen-amber);
+    }
+
+    .tab[data-tab="quiz"].active {
+      border-top: 3px solid var(--pen-blue);
+    }
+
+    .tab[data-tab="timer"].active {
+      border-top: 3px solid var(--pen-green);
+    }
+
+    .tab[data-tab="notes"].active {
+      border-top: 3px solid var(--pen-red);
+    }
+
+    .tab[data-tab="progress"].active {
+      border-top: 3px solid var(--pen-green);
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 0 8px 8px 8px;
+      padding: 24px;
+      min-height: 420px;
+    }
+
+    .panel-title {
+      font-family: 'Fraunces', serif;
+      font-size: 20px;
+      font-weight: 600;
+      margin: 0 0 4px;
+    }
+
+    .panel-sub {
+      color: var(--ink-soft);
+      font-size: 13px;
+      margin: 0 0 20px;
+    }
+
+    button {
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    input,
+    textarea,
+    select {
+      font-family: inherit;
+    }
+
+    .btn {
+      border: 1px solid var(--card-edge);
+      background: var(--card);
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background .12s ease;
+    }
+
+    .btn:hover {
+      background: var(--paper);
+    }
+
+    .btn:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--pen-blue);
+      outline-offset: 2px;
+    }
+
+    .btn-primary {
+      background: var(--ink);
+      color: #fff;
+      border-color: var(--ink);
+    }
+
+    .btn-primary:hover {
+      background: #33394A;
+    }
+
+    .btn:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    .btn-sm {
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+
+    .btn-danger {
+      color: var(--pen-red);
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .toolbar input,
+    .toolbar select,
+    .form-grid input,
+    .form-grid select,
+    .form-grid textarea,
+    .select-row select {
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      background: #fff;
+    }
+
+    .toolbar input {
+      min-width: 170px;
+      flex: 1;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .form-grid .wide {
+      grid-column: 1/-1;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--ink-faint);
+    }
+
+    .status {
+      font-size: 12px;
+      color: var(--ink-soft);
+      min-height: 18px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .empty-state {
+      color: var(--ink-faint);
+      font-size: 13px;
+      padding: 20px 4px;
+      text-align: center;
+      border: 1px dashed var(--card-edge);
+      border-radius: 8px;
+    }
+
+    .pill {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10.5px;
+      border: 1px solid var(--card-edge);
+      border-radius: 20px;
+      padding: 3px 8px;
+      color: var(--ink-soft);
+      background: #fff;
+      white-space: nowrap;
+    }
+
+    .pill.ai {
+      color: var(--pen-blue);
+      background: var(--pen-blue-soft);
+      border-color: rgba(45, 95, 163, .25);
+    }
+
+    .pill.good {
+      color: var(--pen-green);
+      background: var(--pen-green-soft);
+      border-color: rgba(63, 125, 88, .25);
+    }
+
+    .icon-btn {
+      border: none;
+      background: none;
+      color: var(--ink-faint);
+      cursor: pointer;
+      padding: 2px;
+    }
+
+    .icon-btn:hover {
+      color: var(--ink);
+    }
+
+    .item-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .list-row {
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--paper);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .list-row h4 {
+      margin: 0 0 4px;
+      font-size: 14px;
+    }
+
+    .list-row p {
+      margin: 0;
+      color: var(--ink-soft);
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .meta-line {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 7px;
+      align-items: center;
+    }
+
+    .progress-line {
+      height: 7px;
+      background: rgba(31, 36, 48, .08);
+      border-radius: 20px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+
+    .progress-line span {
+      display: block;
+      height: 100%;
+      background: var(--pen-green);
+    }
+
+    #chat-log {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding: 4px 2px 14px;
+    }
+
+    .msg {
+      max-width: 82%;
+      padding: 11px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .msg.user {
+      align-self: flex-end;
+      background: var(--pen-blue-soft);
+      border: 1px solid rgba(45, 95, 163, 0.18);
+    }
+
+    .msg.assistant {
+      align-self: flex-start;
+      background: var(--paper);
+      border: 1px solid var(--card-edge);
+      white-space: pre-wrap;
+    }
+
+    .msg.assistant.loading {
+      color: var(--ink-faint);
+      font-style: italic;
+    }
+
+    .chat-empty {
+      color: var(--ink-faint);
+      font-size: 13px;
+      padding: 20px 4px;
+    }
+
+    .chat-input-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      border-top: 1px solid var(--card-edge);
+      padding-top: 14px;
+    }
+
+    .chat-input-row textarea {
+      flex: 1;
+      resize: none;
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      min-height: 42px;
+      max-height: 120px;
+    }
+
+    .deck-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .deck-chip {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      border: 1px solid var(--card-edge);
+      border-radius: 20px;
+      padding: 5px 12px;
+      background: var(--paper);
+      color: var(--ink-soft);
+      cursor: pointer;
+    }
+
+    .deck-chip.active {
+      background: var(--pen-amber-soft);
+      border-color: rgba(185, 121, 15, 0.4);
+      color: var(--pen-amber);
+      font-weight: 500;
+    }
+
+    .card-list,
+    .note-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 10px;
+    }
+
+    .card-row,
+    .note-card {
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--paper);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .card-row .front,
+    .note-card h4 {
+      font-weight: 600;
+      font-size: 14px;
+      margin: 0;
+    }
+
+    .card-row .back,
+    .note-card .body {
+      color: var(--ink-soft);
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+
+    .note-card .body {
+      font-size: 12.5px;
+      color: var(--ink-soft);
+      line-height: 1.5;
+      flex: 1;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 5;
+      line-clamp: 5;
+      -webkit-box-orient: vertical;
+    }
+
+    .card-actions,
+    .note-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      margin-top: auto;
+    }
+
+    .quiz-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .flip-card {
+      width: 100%;
+      max-width: 460px;
+      min-height: 220px;
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      background: var(--card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      font-size: 17px;
+      line-height: 1.5;
+      cursor: pointer;
+      box-shadow: 0 1px 0 var(--card-edge);
+    }
+
+    .flip-card.flipped {
+      background: var(--pen-amber-soft);
+      border-color: rgba(185, 121, 15, 0.3);
+    }
+
+    .quiz-question {
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 16px;
+      background: var(--paper);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .quiz-option {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      background: #fff;
+      padding: 9px 10px;
+      font-size: 13px;
+    }
+
+    .quiz-option.correct {
+      border-color: rgba(63, 125, 88, .45);
+      background: var(--pen-green-soft);
+    }
+
+    .quiz-option.wrong {
+      border-color: rgba(163, 60, 73, .45);
+      background: var(--pen-red-soft);
+    }
+
+    .timer-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .ring-wrap {
+      position: relative;
+      width: 220px;
+      height: 220px;
+    }
+
+    .ring-wrap svg {
+      transform: rotate(-90deg);
+    }
+
+    .ring-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .ring-time {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 34px;
+      font-weight: 500;
+    }
+
+    .ring-mode {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--ink-soft);
+      margin-top: 2px;
+    }
+
+    .timer-settings {
+      display: flex;
+      gap: 18px;
+      justify-content: center;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--ink-soft);
+    }
+
+    .timer-settings label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .timer-settings input {
+      width: 64px;
+      border: 1px solid var(--card-edge);
+      border-radius: 6px;
+      padding: 5px 7px;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .stat {
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--paper);
+    }
+
+    .stat b {
+      display: block;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 24px;
+      margin-bottom: 2px;
+    }
+
+    .stat span {
+      font-size: 12px;
+      color: var(--ink-soft);
+    }
+
+    .doc-preview {
+      border: 1px solid var(--card-edge);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--paper);
+      max-height: 340px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .footnote {
+      font-size: 11.5px;
+      color: var(--ink-faint);
+      margin-top: 18px;
+      border-top: 1px solid var(--card-edge);
+      padding-top: 12px;
+    }
+
+    @media (max-width:780px) {
+
+      .split,
+      .form-grid,
+      .stat-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .masthead h1 {
+        font-size: 26px;
+      }
+
+      .ring-wrap {
+        width: 180px;
+        height: 180px;
+      }
+
+      .msg {
+        max-width: 94%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <div class="masthead">
+      <div>
+        <h1>Margin</h1>
+        <p>One desk for documents, notes, flashcards, quizzes, focus, and progress.</p>
+      </div>
+      <span class="offline-pill" id="net-pill">local-first: documents, cards, notes, quizzes, and progress save in this
+        browser</span>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="documents" role="tab" aria-selected="true"><svg viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+          <path d="M8 13h8M8 17h5" />
+        </svg>Documents</button>
+      <button class="tab" data-tab="tutor" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>Tutor</button>
+      <button class="tab" data-tab="cards" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <rect x="3" y="6" width="14" height="12" rx="2" />
+          <path d="M7 3h14v12" />
+        </svg>Flashcards</button>
+      <button class="tab" data-tab="quiz" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <path d="M9 11l3 3L22 4" />
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+        </svg>Quiz</button>
+      <button class="tab" data-tab="timer" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="13" r="8" />
+          <path d="M12 9v4l3 2M9 2h6" />
+        </svg>Timer</button>
+      <button class="tab" data-tab="notes" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <path d="M4 4h16v16H4z" />
+          <path d="M8 8h8M8 12h8M8 16h5" />
+        </svg>Notes</button>
+      <button class="tab" data-tab="progress" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <path d="M3 3v18h18" />
+          <path d="M7 15l4-4 3 3 5-7" />
+        </svg>Progress</button>
+    </div>
+
+    <section class="panel" id="panel-documents">
+      <p class="panel-title">Documents</p>
+      <p class="panel-sub">Upload PDF or TXT files, organize them by course and unit, and use extracted text for AI
+        notes, flashcards, and quizzes.</p>
+      <div class="split">
+        <div>
+          <div class="form-grid">
+            <input type="file" id="doc-file" class="wide" accept=".pdf,.txt,application/pdf,text/plain">
+            <input type="text" id="doc-title" placeholder="Title (optional)">
+            <input type="text" id="doc-course" list="course-list" placeholder="Course e.g. Data Structures">
+            <input type="text" id="doc-unit" list="unit-list" placeholder="Unit e.g. Trees">
+            <select id="doc-favorite">
+              <option value="">Not favorite</option>
+              <option value="yes">Favorite</option>
+            </select>
+          </div>
+          <div class="row" style="margin-bottom:12px;">
+            <button class="btn btn-primary" id="upload-doc-btn">Upload document</button>
+            <span class="status" id="doc-status"></span>
+          </div>
+          <div class="toolbar">
+            <input type="text" id="doc-search" placeholder="Search documents">
+            <select id="doc-sort">
+              <option value="recent">Sort by recent</option>
+              <option value="title">Sort by title</option>
+              <option value="course">Sort by course</option>
+            </select>
+            <select id="doc-filter">
+              <option value="all">All tags</option>
+              <option value="favorites">Favorites</option>
+            </select>
+          </div>
+          <div class="item-list" id="doc-list"></div>
+          <div class="empty-state hidden" id="docs-empty">No documents yet. Upload a PDF or TXT to start.</div>
+        </div>
+        <div class="stack">
+          <div class="row">
+            <select id="active-doc-select" style="flex:1;min-width:180px;"></select>
+            <button class="btn" id="open-doc-btn">Open</button>
+          </div>
+          <div class="doc-preview" id="doc-preview">Select a document to preview extracted text.</div>
+          <label class="hint">Reading progress
+            <input type="range" id="doc-progress" min="0" max="100" value="0" style="width:100%;">
+          </label>
+        </div>
+      </div>
+      <datalist id="course-list"></datalist>
+      <datalist id="unit-list"></datalist>
+    </section>
+
+    <section class="panel hidden" id="panel-tutor">
+      <p class="panel-title">Ask anything</p>
+      <p class="panel-sub">Works across subjects. This tab needs the backend server and an internet connection.</p>
+      <div id="chat-log">
+        <div class="chat-empty" id="chat-empty">Ask about a concept, a past-paper question, or get a worked example.
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <textarea id="chat-input" placeholder="Type your question..." rows="1"></textarea>
+        <button class="btn btn-primary" id="chat-send">Ask</button>
+      </div>
+    </section>
+
+    <section class="panel hidden" id="panel-cards">
+      <p class="panel-title">Flashcards</p>
+      <p class="panel-sub">Create cards manually or generate editable AI cards from a document.</p>
+      <div class="toolbar">
+        <select id="flashcard-doc-select"></select>
+        <button class="btn btn-primary" id="generate-cards-btn">Generate from document</button>
+        <span class="status" id="cards-ai-status"></span>
+      </div>
+      <div class="form-grid">
+        <select id="card-format">
+          <option value="basic">Basic Q&A</option>
+          <option value="definition">Definition</option>
+          <option value="fill_blank">Fill-in-the-blank</option>
+        </select>
+        <input type="text" id="card-subject" list="subject-list" placeholder="Course or subject">
+        <input type="text" id="card-unit" list="unit-list" placeholder="Unit">
+        <input type="text" id="card-front" placeholder="Front - question, term, or prompt">
+        <textarea id="card-back" class="wide" placeholder="Back - answer or definition"></textarea>
+        <datalist id="subject-list"></datalist>
+      </div>
+      <div class="row" style="margin-bottom:18px;">
+        <button class="btn btn-primary" id="add-card-btn">Add card</button>
+        <button class="btn" id="export-cards-btn">Export deck (.json)</button>
+        <button class="btn" id="import-cards-btn">Import deck (.json)</button>
+        <input type="file" id="import-cards-file" accept=".json" class="hidden">
+      </div>
+      <div class="deck-bar" id="deck-bar"></div>
+      <div class="card-list" id="card-list"></div>
+      <div class="empty-state hidden" id="cards-empty">No cards yet. Add one manually or generate from a document.</div>
+      <div class="row" style="margin-top:18px;">
+        <button class="btn btn-primary" id="start-card-study-btn">Study this deck</button>
+      </div>
+      <div id="cards-study" class="hidden" style="margin-top:18px;">
+        <div class="quiz-wrap">
+          <div class="status" id="card-study-progress"></div>
+          <div class="flip-card" id="flip-card"></div>
+          <div class="hint">Tap the card to flip.</div>
+          <div class="row">
+            <button class="btn" id="card-again-btn">Review again</button>
+            <button class="btn btn-primary" id="card-got-it-btn">Got it</button>
+            <button class="btn btn-sm" id="card-study-exit-btn">End session</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel hidden" id="panel-quiz">
+      <p class="panel-title">Quiz</p>
+      <p class="panel-sub">Generate multiple choice, true/false, fill-in-the-blank, and short-answer quizzes from saved
+        documents.</p>
+      <div class="toolbar">
+        <select id="quiz-doc-select"></select>
+        <button class="btn btn-primary" id="generate-quiz-btn">Generate quiz</button>
+        <span class="status" id="quiz-status"></span>
+      </div>
+      <div id="quiz-area" class="stack"></div>
+      <div class="empty-state" id="quiz-empty">Choose a document and generate a quiz.</div>
+    </section>
+
+    <section class="panel hidden" id="panel-timer">
+      <p class="panel-title">Focus timer</p>
+      <p class="panel-sub">Completed work sessions are logged against the active course and unit for progress tracking.
+      </p>
+      <div class="toolbar">
+        <select id="timer-course"></select>
+        <select id="timer-unit"></select>
+      </div>
+      <div class="timer-wrap">
+        <div class="ring-wrap">
+          <svg width="220" height="220" viewBox="0 0 220 220">
+            <circle cx="110" cy="110" r="98" fill="none" stroke="var(--paper-grid)" stroke-width="10" />
+            <circle id="ring-progress" cx="110" cy="110" r="98" fill="none" stroke="var(--pen-green)" stroke-width="10"
+              stroke-linecap="round" stroke-dasharray="615.75" stroke-dashoffset="0" />
+          </svg>
+          <div class="ring-label">
+            <div class="ring-time" id="ring-time">25:00</div>
+            <div class="ring-mode" id="ring-mode">Work session</div>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn btn-primary" id="timer-start-btn">Start</button>
+          <button class="btn" id="timer-reset-btn">Reset</button>
+        </div>
+        <div class="timer-settings">
+          <label>Work (min)<input type="number" id="work-min" value="25" min="1" max="120"></label>
+          <label>Break (min)<input type="number" id="break-min" value="5" min="1" max="60"></label>
+          <label>Long break (min)<input type="number" id="long-min" value="15" min="1" max="60"></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel hidden" id="panel-notes">
+      <p class="panel-title">Notes</p>
+      <p class="panel-sub">Write notes manually or generate editable AI notes from a document.</p>
+      <div class="toolbar">
+        <select id="notes-doc-select"></select>
+        <button class="btn btn-primary" id="generate-notes-btn">Generate from document</button>
+        <span class="status" id="notes-ai-status"></span>
+      </div>
+      <div class="toolbar">
+        <input type="text" id="notes-search" placeholder="Search notes">
+        <button class="btn btn-primary" id="new-note-btn">New note</button>
+        <button class="btn" id="export-notes-btn">Export (.json)</button>
+        <button class="btn" id="import-notes-btn">Import (.json)</button>
+        <input type="file" id="import-notes-file" accept=".json" class="hidden">
+      </div>
+      <div class="form-grid hidden" id="note-form">
+        <input type="text" id="note-title" placeholder="Title">
+        <input type="text" id="note-tag" list="course-list" placeholder="Course or subject">
+        <input type="text" id="note-unit" list="unit-list" placeholder="Unit">
+        <textarea id="note-body" class="wide" placeholder="Write your note..."></textarea>
+        <div class="row wide">
+          <button class="btn btn-primary" id="save-note-btn">Save note</button>
+          <button class="btn" id="cancel-note-btn">Cancel</button>
+        </div>
+      </div>
+      <div class="note-grid" id="note-grid"></div>
+      <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" or generate one from a document.
+      </div>
+    </section>
+
+    <section class="panel hidden" id="panel-progress">
+      <p class="panel-title">Progress</p>
+      <p class="panel-sub">A plain dashboard for reading progress, flashcard mastery, quiz accuracy, study time, and
+        sessions this week.</p>
+      <div class="stat-grid">
+        <div class="stat"><b id="stat-hours">0h</b><span>study time</span></div>
+        <div class="stat"><b id="stat-docs">0</b><span>completed documents</span></div>
+        <div class="stat"><b id="stat-quiz">0%</b><span>quiz accuracy</span></div>
+        <div class="stat"><b id="stat-cards">0%</b><span>flashcard mastery</span></div>
+      </div>
+      <div class="split">
+        <div>
+          <h3 class="panel-title" style="font-size:17px;">By course and unit</h3>
+          <div class="item-list" id="progress-list"></div>
+        </div>
+        <div>
+          <h3 class="panel-title" style="font-size:17px;">Recent sessions</h3>
+          <div class="item-list" id="session-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <p class="footnote">Documents, notes, flashcards, quiz history, and timer sessions are stored in IndexedDB on this
+      browser. AI generation and Tutor use the backend server; raw API keys stay server-side.</p>
+  </div>
+
+  <script>
+    const DB_NAME = 'margin-db';
+    const STORE = 'kv';
+    const QUERY_API_BASE = new URLSearchParams(location.search).get('api') || '';
+    const CONFIGURED_API_BASE = window.MARGIN_API_BASE || QUERY_API_BASE || localStorage.getItem('margin-api-base') || '';
+    const DEPLOYED_API_BASE = 'https://YOUR-BACKEND-URL-HERE';
+    const API_TIMEOUT_MS = 45000;
+    let dbPromise = null;
+
+    let documents = [];
+    let cards = [];
+    let notes = [];
+    let quizResults = [];
+    let timerSessions = [];
+    let activeSubject = 'all';
+    let editingNoteId = null;
+    let currentPreviewDocId = null;
+    let chatHistory = [];
+    let studyDeck = [];
+    let studyIndex = 0;
+    let studyFlipped = false;
+
+    function openDB() {
+      if (dbPromise) return dbPromise;
+      dbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'key' });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      return dbPromise;
+    }
+    async function idbSet(key, value) {
+      try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE, 'readwrite');
+          tx.objectStore(STORE).put({ key, value });
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => reject(tx.error);
+        });
+      } catch (e) { console.warn('Could not save', key, e); return false; }
+    }
+    async function idbGet(key) {
+      try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE, 'readonly');
+          const req = tx.objectStore(STORE).get(key);
+          req.onsuccess = () => resolve(req.result ? req.result.value : undefined);
+          req.onerror = () => reject(req.error);
+        });
+      } catch (e) { console.warn('Could not load', key, e); return undefined; }
+    }
+
+    const $ = id => document.getElementById(id);
+    function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
+    function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+    function formatBytes(bytes) {
+      if (!bytes) return '0 KB';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let size = bytes, i = 0;
+      while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+      return `${size.toFixed(size >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+    }
+    function normalizeAnswer(value) { return String(value || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+    function courseUnitKey(course, unit) { return `${course || 'General'}|${unit || 'General'}`; }
+    function truncateText(text, max = 12000) { return String(text || '').slice(0, max); }
+    function setStatus(id, text) { $(id).textContent = text; }
+    function cleanApiBase(value) {
+      return String(value || '').trim().replace(/\/+$/, '');
+    }
+    function apiBaseCandidates() {
+      const candidates = [];
+      const add = value => {
+        const base = cleanApiBase(value);
+        if (base && base !== cleanApiBase(DEPLOYED_API_BASE) && !candidates.includes(base)) candidates.push(base);
+      };
+      add(CONFIGURED_API_BASE);
+      if (location.protocol === 'http:' || location.protocol === 'https:') add(location.origin);
+      if (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:') add('http://localhost:3000');
+      add('http://127.0.0.1:3000');
+      return candidates;
+    }
+    async function apiFetch(path, options = {}) {
+      const bases = apiBaseCandidates();
+      if (bases.length === 0) {
+        throw new Error('Set your backend URL first. Define window.MARGIN_API_BASE or deploy the Express server and update DEPLOYED_API_BASE.');
+      }
+
+      let lastError = null;
+      for (const base of bases) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+        try {
+          const res = await fetch(`${base}${path}`, { ...options, signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (res.status !== 404) {
+            localStorage.setItem('margin-api-base', base);
+            return res;
+          }
+          lastError = new Error(`No API route at ${base}`);
+        } catch (error) {
+          clearTimeout(timeoutId);
+          lastError = error;
+        }
+      }
+
+      const tried = bases.join(', ');
+      if (lastError?.name === 'AbortError') throw new Error(`The backend did not respond in time. Tried: ${tried}`);
+      throw new Error(`Could not reach the backend. Start the Express server or set window.MARGIN_API_BASE. Tried: ${tried}`);
+    }
+    function persistAll() {
+      idbSet('documents', documents);
+      idbSet('cards', cards);
+      idbSet('notes', notes);
+      idbSet('quizResults', quizResults);
+      idbSet('timerSessions', timerSessions);
+    }
+
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => { x.classList.remove('active'); x.setAttribute('aria-selected', 'false'); });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+      document.querySelectorAll('.panel').forEach(panel => panel.classList.add('hidden'));
+      $(`panel-${tab.dataset.tab}`).classList.remove('hidden');
+      if (tab.dataset.tab === 'progress') renderProgress();
+    }));
+
+    async function parseDocumentFile(file) {
+      if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        if (!window.pdfjsLib) throw new Error('PDF parser did not load. Check your connection and try again.');
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        let chunks = [];
+        for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+          const page = await pdf.getPage(pageNo);
+          const content = await page.getTextContent();
+          chunks.push(content.items.map(item => item.str).join(' '));
+        }
+        return chunks.join('\n\n').trim();
+      }
+      if (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')) {
+        return await file.text();
+      }
+      throw new Error('Only PDF and TXT files are supported in v1.');
+    }
+
+    async function blobToDataUrl(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    function dataUrlToBlob(dataUrl) {
+      const [meta, body] = dataUrl.split(',');
+      const mime = (meta.match(/data:(.*?);base64/) || [, 'application/octet-stream'])[1];
+      const bin = atob(body);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    }
+
+    async function addDocument() {
+      const file = $('doc-file').files[0];
+      if (!file) return setStatus('doc-status', 'Choose a PDF or TXT file first.');
+      setStatus('doc-status', 'Extracting text...');
+      try {
+        const extractedText = await parseDocumentFile(file);
+        if (!extractedText.trim()) throw new Error('No readable text was found.');
+        const now = Date.now();
+        const title = $('doc-title').value.trim() || file.name.replace(/\.[^.]+$/, '');
+        const doc = {
+          id: uid(),
+          title,
+          course: $('doc-course').value.trim(),
+          unit: $('doc-unit').value.trim(),
+          favorite: $('doc-favorite').value === 'yes',
+          fileName: file.name,
+          fileType: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'text/plain'),
+          fileSize: file.size,
+          fileData: await blobToDataUrl(file),
+          extractedText,
+          uploadedAt: now,
+          lastOpened: null,
+          readingProgress: 0
+        };
+        documents.push(doc);
+        $('doc-file').value = '';
+        $('doc-title').value = '';
+        setStatus('doc-status', 'Document saved.');
+        await idbSet('documents', documents);
+        renderEverything();
+        previewDocument(doc.id);
+      } catch (err) {
+        setStatus('doc-status', err.message || 'Could not upload document.');
+      }
+    }
+
+    function filteredDocuments() {
+      const q = $('doc-search').value.trim().toLowerCase();
+      const filter = $('doc-filter').value;
+      let list = documents.filter(doc => {
+        const hay = `${doc.title} ${doc.course} ${doc.unit} ${doc.fileName}`.toLowerCase();
+        return (!q || hay.includes(q)) && (filter !== 'favorites' || doc.favorite);
+      });
+      const sort = $('doc-sort').value;
+      list.sort((a, b) => {
+        if (sort === 'title') return a.title.localeCompare(b.title);
+        if (sort === 'course') return `${a.course}${a.unit}${a.title}`.localeCompare(`${b.course}${b.unit}${b.title}`);
+        return (b.lastOpened || b.uploadedAt) - (a.lastOpened || a.uploadedAt);
+      });
+      return list;
+    }
+
+    function renderDocuments() {
+      const list = $('doc-list');
+      const empty = $('docs-empty');
+      const docs = filteredDocuments();
+      if (docs.length === 0) { list.innerHTML = ''; empty.classList.remove('hidden'); }
+      else {
+        empty.classList.add('hidden');
+        list.innerHTML = docs.map(doc => `
+      <div class="list-row">
+        <div>
+          <h4>${escapeHtml(doc.title)}</h4>
+          <p>${escapeHtml(doc.fileName)} - ${formatBytes(doc.fileSize)}</p>
+          <div class="meta-line">
+            <span class="pill">${escapeHtml(doc.course || 'General')}</span>
+            <span class="pill">${escapeHtml(doc.unit || 'General')}</span>
+            ${doc.favorite ? '<span class="pill good">favorite</span>' : ''}
+            <span class="pill">${new Date(doc.uploadedAt).toLocaleDateString()}</span>
+          </div>
+          <div class="progress-line"><span style="width:${doc.readingProgress || 0}%"></span></div>
+        </div>
+        <div class="row">
+          <button class="btn btn-sm" data-preview-doc="${doc.id}">Preview</button>
+          <button class="btn btn-sm" data-open-raw="${doc.id}">File</button>
+          <button class="icon-btn btn-danger" data-delete-doc="${doc.id}" title="Delete" aria-label="Delete document">x</button>
+        </div>
+      </div>
+    `).join('');
+      }
+      list.querySelectorAll('[data-preview-doc]').forEach(btn => btn.addEventListener('click', () => previewDocument(btn.dataset.previewDoc)));
+      list.querySelectorAll('[data-open-raw]').forEach(btn => btn.addEventListener('click', () => openRawDocument(btn.dataset.openRaw)));
+      list.querySelectorAll('[data-delete-doc]').forEach(btn => btn.addEventListener('click', () => {
+        if (!confirm('Delete this document from this browser?')) return;
+        documents = documents.filter(doc => doc.id !== btn.dataset.deleteDoc);
+        if (currentPreviewDocId === btn.dataset.deleteDoc) currentPreviewDocId = null;
+        idbSet('documents', documents);
+        renderEverything();
+      }));
+      renderDocumentSelects();
+    }
+
+    function renderDocumentSelects() {
+      const options = documents.length
+        ? documents.map(doc => `<option value="${doc.id}">${escapeHtml(doc.title)}</option>`).join('')
+        : '<option value="">No documents</option>';
+      ['active-doc-select', 'flashcard-doc-select', 'quiz-doc-select', 'notes-doc-select'].forEach(id => {
+        const previous = $(id).value;
+        $(id).innerHTML = options;
+        if (documents.some(doc => doc.id === previous)) $(id).value = previous;
+      });
+    }
+
+    function previewDocument(id) {
+      const doc = documents.find(d => d.id === id);
+      if (!doc) return;
+      currentPreviewDocId = id;
+      doc.lastOpened = Date.now();
+      $('active-doc-select').value = id;
+      $('doc-preview').textContent = doc.extractedText.slice(0, 6000) || 'No extracted text available.';
+      $('doc-progress').value = doc.readingProgress || 0;
+      idbSet('documents', documents);
+      renderDocuments();
+    }
+
+    function openRawDocument(id) {
+      const doc = documents.find(d => d.id === id);
+      if (!doc || !doc.fileData) return;
+      doc.lastOpened = Date.now();
+      const url = URL.createObjectURL(dataUrlToBlob(doc.fileData));
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      idbSet('documents', documents);
+      renderDocuments();
+    }
+
+    function renderTaxonomy() {
+      const courses = [...new Set([
+        ...documents.map(d => d.course),
+        ...cards.map(c => c.subject),
+        ...notes.map(n => n.tag),
+        ...timerSessions.map(s => s.course)
+      ].filter(Boolean))].sort();
+      const units = [...new Set([
+        ...documents.map(d => d.unit),
+        ...cards.map(c => c.unit),
+        ...notes.map(n => n.unit),
+        ...timerSessions.map(s => s.unit)
+      ].filter(Boolean))].sort();
+      $('course-list').innerHTML = courses.map(c => `<option value="${escapeHtml(c)}">`).join('');
+      $('subject-list').innerHTML = courses.map(c => `<option value="${escapeHtml(c)}">`).join('');
+      $('unit-list').innerHTML = units.map(u => `<option value="${escapeHtml(u)}">`).join('');
+      const courseOptions = ['<option value="">General course</option>', ...courses.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join('');
+      const unitOptions = ['<option value="">General unit</option>', ...units.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`)].join('');
+      const prevCourse = $('timer-course').value;
+      const prevUnit = $('timer-unit').value;
+      $('timer-course').innerHTML = courseOptions;
+      $('timer-unit').innerHTML = unitOptions;
+      if (courses.includes(prevCourse)) $('timer-course').value = prevCourse;
+      if (units.includes(prevUnit)) $('timer-unit').value = prevUnit;
+    }
+
+    function addMsg(role, text) {
+      const empty = $('chat-empty');
+      if (empty) empty.remove();
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.textContent = text;
+      $('chat-log').appendChild(div);
+      $('chat-log').scrollTop = $('chat-log').scrollHeight;
+      return div;
+    }
+    async function sendChat() {
+      const q = $('chat-input').value.trim();
+      if (!q) return;
+      $('chat-input').value = '';
+      $('chat-send').disabled = true;
+      addMsg('user', q);
+      chatHistory.push({ role: 'user', content: q });
+      const loadingEl = addMsg('assistant loading', 'Thinking...');
+      try {
+        const res = await apiFetch('/api/tutor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: chatHistory })
+        });
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        const textBlock = data.text || 'No response received.';
+        loadingEl.remove();
+        addMsg('assistant', textBlock);
+        chatHistory.push({ role: 'assistant', content: textBlock });
+        if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+      } catch (err) {
+        loadingEl.remove();
+        addMsg('assistant', err.message || 'Could not reach the tutor. Check the backend server and try again.');
+        chatHistory.pop();
+      } finally {
+        $('chat-send').disabled = false;
+      }
+    }
+
+    function cardLabel(card) {
+      if (card.format === 'definition') return 'Definition';
+      if (card.format === 'fill_blank') return 'Fill blank';
+      return 'Basic';
+    }
+    function renderDeckBar() {
+      const subs = [...new Set(cards.map(c => c.subject || 'General'))].sort();
+      const bar = $('deck-bar');
+      if (subs.length === 0) { bar.innerHTML = ''; return; }
+      let html = `<button class="deck-chip ${activeSubject === 'all' ? 'active' : ''}" data-subj="all">All (${cards.length})</button>`;
+      subs.forEach(s => {
+        const count = cards.filter(c => (c.subject || 'General') === s).length;
+        html += `<button class="deck-chip ${activeSubject === s ? 'active' : ''}" data-subj="${escapeHtml(s)}">${escapeHtml(s)} (${count})</button>`;
+      });
+      bar.innerHTML = html;
+      bar.querySelectorAll('.deck-chip').forEach(btn => btn.addEventListener('click', () => {
+        activeSubject = btn.dataset.subj;
+        renderDeckBar();
+        renderCardList();
+      }));
+    }
+    function filteredCards() {
+      return activeSubject === 'all' ? cards : cards.filter(c => (c.subject || 'General') === activeSubject);
+    }
+    function renderCardList() {
+      const list = $('card-list');
+      const empty = $('cards-empty');
+      const fc = filteredCards();
+      if (fc.length === 0) { list.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      list.innerHTML = fc.map(c => `
+    <div class="card-row">
+      <div class="meta-line">
+        <span class="pill">${escapeHtml(c.subject || 'General')}</span>
+        <span class="pill">${escapeHtml(c.unit || 'General')}</span>
+        <span class="pill">${cardLabel(c)}</span>
+        ${c.aiGenerated ? '<span class="pill ai">AI generated</span>' : ''}
+      </div>
+      <div class="front">${escapeHtml(c.front)}</div>
+      <div class="back">${escapeHtml(c.back)}</div>
+      <div class="card-actions">
+        <span class="hint">Mastery: ${c.mastered ? 'got it' : 'learning'}</span>
+        <button class="icon-btn btn-danger" data-del-card="${c.id}" title="Delete" aria-label="Delete card">x</button>
+      </div>
+    </div>
+  `).join('');
+      list.querySelectorAll('[data-del-card]').forEach(btn => btn.addEventListener('click', () => {
+        if (!confirm('Delete this flashcard?')) return;
+        cards = cards.filter(c => c.id !== btn.dataset.delCard);
+        idbSet('cards', cards);
+        renderEverything();
+      }));
+    }
+    function addManualCard() {
+      const front = $('card-front').value.trim();
+      const back = $('card-back').value.trim();
+      if (!front || !back) return;
+      cards.push({
+        id: uid(),
+        front,
+        back,
+        subject: $('card-subject').value.trim(),
+        unit: $('card-unit').value.trim(),
+        format: $('card-format').value,
+        aiGenerated: false,
+        mastered: false,
+        createdAt: Date.now()
+      });
+      $('card-front').value = '';
+      $('card-back').value = '';
+      idbSet('cards', cards);
+      renderEverything();
+    }
+    async function generateFlashcardsFromDocument() {
+      const doc = documents.find(d => d.id === $('flashcard-doc-select').value);
+      if (!doc) return setStatus('cards-ai-status', 'Upload a document first.');
+      setStatus('cards-ai-status', 'Generating cards...');
+      $('generate-cards-btn').disabled = true;
+      try {
+        const data = await callAI('/api/generate-flashcards', { document: aiDocumentPayload(doc) });
+        const incoming = Array.isArray(data.cards) ? data.cards : Array.isArray(data) ? data : [];
+        incoming.forEach(card => {
+          cards.push({
+            id: uid(),
+            front: card.front || card.question || card.term || '',
+            back: card.back || card.answer || card.definition || '',
+            subject: doc.course,
+            unit: doc.unit,
+            format: card.format || 'basic',
+            aiGenerated: true,
+            sourceDocumentId: doc.id,
+            mastered: false,
+            createdAt: Date.now()
+          });
+        });
+        await idbSet('cards', cards);
+        setStatus('cards-ai-status', `Added ${incoming.length} cards.`);
+        renderEverything();
+      } catch (err) {
+        setStatus('cards-ai-status', err.message || 'Could not generate cards.');
+      } finally {
+        $('generate-cards-btn').disabled = false;
+      }
+    }
+
+    function startCardStudy() {
+      studyDeck = shuffle([...filteredCards()]);
+      if (studyDeck.length === 0) return;
+      studyIndex = 0;
+      $('cards-study').classList.remove('hidden');
+      renderStudyCard();
+    }
+    function renderStudyCard() {
+      if (studyIndex >= studyDeck.length) {
+        $('card-study-progress').textContent = 'Session complete.';
+        $('flip-card').textContent = 'Nice work. The deck is cleared for now.';
+        $('flip-card').classList.remove('flipped');
+        return;
+      }
+      studyFlipped = false;
+      $('card-study-progress').textContent = `Card ${studyIndex + 1} of ${studyDeck.length}`;
+      $('flip-card').classList.remove('flipped');
+      $('flip-card').textContent = studyDeck[studyIndex].front;
+    }
+    function markStudyCard(mastered) {
+      if (studyIndex >= studyDeck.length) return;
+      const card = cards.find(c => c.id === studyDeck[studyIndex].id);
+      if (card) card.mastered = mastered;
+      studyIndex++;
+      idbSet('cards', cards);
+      renderStudyCard();
+      renderProgress();
+    }
+    function shuffle(items) {
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+      return items;
+    }
+
+    function renderNotes() {
+      const grid = $('note-grid');
+      const empty = $('notes-empty');
+      const q = $('notes-search').value.trim().toLowerCase();
+      const filtered = notes.filter(n => {
+        const hay = `${n.title} ${n.body} ${n.tag} ${n.unit}`.toLowerCase();
+        return !q || hay.includes(q);
+      }).sort((a, b) => b.updatedAt - a.updatedAt);
+      if (filtered.length === 0) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      grid.innerHTML = filtered.map(n => `
+    <div class="note-card">
+      <div class="meta-line">
+        <span class="pill">${escapeHtml(n.tag || 'General')}</span>
+        <span class="pill">${escapeHtml(n.unit || 'General')}</span>
+        ${n.aiGenerated ? '<span class="pill ai">AI generated</span>' : ''}
+      </div>
+      <h4>${escapeHtml(n.title || 'Untitled')}</h4>
+      <div class="body">${escapeHtml(n.body)}</div>
+      <div class="note-meta">
+        <span class="hint">${new Date(n.updatedAt).toLocaleDateString()}</span>
+        <span>
+          <button class="icon-btn" data-edit-note="${n.id}" title="Edit" aria-label="Edit note">edit</button>
+          <button class="icon-btn btn-danger" data-del-note="${n.id}" title="Delete" aria-label="Delete note">x</button>
+        </span>
+      </div>
+    </div>
+  `).join('');
+      grid.querySelectorAll('[data-edit-note]').forEach(btn => btn.addEventListener('click', () => openNoteForm(btn.dataset.editNote)));
+      grid.querySelectorAll('[data-del-note]').forEach(btn => btn.addEventListener('click', () => {
+        if (!confirm('Delete this note?')) return;
+        notes = notes.filter(n => n.id !== btn.dataset.delNote);
+        idbSet('notes', notes);
+        renderNotes();
+      }));
+    }
+    function openNoteForm(id) {
+      $('note-form').classList.remove('hidden');
+      editingNoteId = id || null;
+      const n = notes.find(note => note.id === id);
+      $('note-title').value = n?.title || '';
+      $('note-tag').value = n?.tag || '';
+      $('note-unit').value = n?.unit || '';
+      $('note-body').value = n?.body || '';
+      $('note-title').focus();
+    }
+    function saveNote() {
+      const title = $('note-title').value.trim();
+      const tag = $('note-tag').value.trim();
+      const unit = $('note-unit').value.trim();
+      const body = $('note-body').value.trim();
+      if (!title && !body) return;
+      if (editingNoteId) {
+        const n = notes.find(note => note.id === editingNoteId);
+        if (n) { n.title = title; n.tag = tag; n.unit = unit; n.body = body; n.updatedAt = Date.now(); }
+      } else {
+        notes.push({ id: uid(), title, tag, unit, body, aiGenerated: false, createdAt: Date.now(), updatedAt: Date.now() });
+      }
+      $('note-form').classList.add('hidden');
+      idbSet('notes', notes);
+      renderEverything();
+    }
+    async function generateNotesFromDocument() {
+      const doc = documents.find(d => d.id === $('notes-doc-select').value);
+      if (!doc) return setStatus('notes-ai-status', 'Upload a document first.');
+      setStatus('notes-ai-status', 'Generating notes...');
+      $('generate-notes-btn').disabled = true;
+      try {
+        const data = await callAI('/api/generate-notes', { document: aiDocumentPayload(doc) });
+        const bodyParts = [
+          data.summary ? `Summary\n${data.summary}` : '',
+          Array.isArray(data.keyConcepts) && data.keyConcepts.length ? `\nKey concepts\n${data.keyConcepts.map(x => `- ${x}`).join('\n')}` : '',
+          data.body || ''
+        ].filter(Boolean);
+        notes.push({
+          id: uid(),
+          title: data.title || `${doc.title} notes`,
+          tag: doc.course,
+          unit: doc.unit,
+          body: bodyParts.join('\n\n'),
+          aiGenerated: true,
+          sourceDocumentId: doc.id,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+        await idbSet('notes', notes);
+        setStatus('notes-ai-status', 'AI note added.');
+        renderEverything();
+      } catch (err) {
+        setStatus('notes-ai-status', err.message || 'Could not generate notes.');
+      } finally {
+        $('generate-notes-btn').disabled = false;
+      }
+    }
+
+    function aiDocumentPayload(doc) {
+      return {
+        id: doc.id,
+        title: doc.title,
+        course: doc.course,
+        unit: doc.unit,
+        text: truncateText(doc.extractedText, 14000)
+      };
+    }
+    async function callAI(path, payload) {
+      const res = await apiFetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || `Server error: ${res.status}`);
+      return data;
+    }
+
+    async function generateQuiz() {
+      const doc = documents.find(d => d.id === $('quiz-doc-select').value);
+      if (!doc) return setStatus('quiz-status', 'Upload a document first.');
+      setStatus('quiz-status', 'Generating quiz...');
+      $('generate-quiz-btn').disabled = true;
+      try {
+        const data = await callAI('/api/generate-quiz', { document: aiDocumentPayload(doc) });
+        const questions = Array.isArray(data.questions) ? data.questions : [];
+        renderQuiz(doc, questions);
+        setStatus('quiz-status', `Ready: ${questions.length} questions.`);
+      } catch (err) {
+        setStatus('quiz-status', err.message || 'Could not generate quiz.');
+      } finally {
+        $('generate-quiz-btn').disabled = false;
+      }
+    }
+    function renderQuiz(doc, questions) {
+      $('quiz-empty').classList.add('hidden');
+      const area = $('quiz-area');
+      if (questions.length === 0) { area.innerHTML = '<div class="empty-state">The AI did not return usable questions.</div>'; return; }
+      area.innerHTML = questions.map((q, i) => {
+        const type = q.type || 'multiple_choice';
+        const options = Array.isArray(q.options) ? q.options : (type === 'true_false' ? ['True', 'False'] : []);
+        const input = options.length ? options.map(opt => `
+      <label class="quiz-option">
+        <input type="radio" name="quiz-${i}" value="${escapeHtml(opt)}">
+        <span>${escapeHtml(opt)}</span>
+      </label>
+    `).join('') : `<input type="text" data-free-answer="${i}" placeholder="Your answer">`;
+        return `
+      <div class="quiz-question" data-q-index="${i}">
+        <div class="meta-line"><span class="pill">${escapeHtml(type.replace(/_/g, ' '))}</span></div>
+        <strong>${i + 1}. ${escapeHtml(q.question)}</strong>
+        <div>${input}</div>
+        <div class="status" data-feedback="${i}"></div>
+      </div>
+    `;
+      }).join('') + '<div class="row"><button class="btn btn-primary" id="grade-quiz-btn">Grade quiz</button></div>';
+      $('grade-quiz-btn').addEventListener('click', () => gradeQuiz(doc, questions));
+    }
+    function gradeQuiz(doc, questions) {
+      let correct = 0;
+      questions.forEach((q, i) => {
+        const chosen = document.querySelector(`input[name="quiz-${i}"]:checked`)?.value;
+        const free = document.querySelector(`[data-free-answer="${i}"]`)?.value;
+        const answer = chosen ?? free ?? '';
+        const ok = normalizeAnswer(answer) === normalizeAnswer(q.correctAnswer || q.answer);
+        if (ok) correct++;
+        const feedback = document.querySelector(`[data-feedback="${i}"]`);
+        feedback.textContent = `${ok ? 'Correct' : 'Incorrect'} - answer: ${q.correctAnswer || q.answer || 'Not provided'}. ${q.explanation || ''}`;
+        document.querySelectorAll(`[name="quiz-${i}"]`).forEach(input => {
+          const label = input.closest('.quiz-option');
+          label.classList.toggle('correct', normalizeAnswer(input.value) === normalizeAnswer(q.correctAnswer || q.answer));
+          label.classList.toggle('wrong', input.checked && !ok);
+        });
+      });
+      const score = questions.length ? Math.round((correct / questions.length) * 100) : 0;
+      quizResults.push({ id: uid(), documentId: doc.id, course: doc.course, unit: doc.unit, score, correct, total: questions.length, takenAt: Date.now() });
+      idbSet('quizResults', quizResults);
+      setStatus('quiz-status', `Score: ${correct}/${questions.length} (${score}%).`);
+      renderProgress();
+    }
+
+    const RING_CIRC = 2 * Math.PI * 98;
+    $('ring-progress').setAttribute('stroke-dasharray', RING_CIRC.toFixed(2));
+    let timer = { mode: 'work', remaining: 25 * 60, total: 25 * 60, running: false, cyclesDone: 0, intervalId: null };
+    function getDurations() {
+      return {
+        work: Math.max(1, parseInt($('work-min').value) || 25) * 60,
+        brk: Math.max(1, parseInt($('break-min').value) || 5) * 60,
+        long: Math.max(1, parseInt($('long-min').value) || 15) * 60
+      };
+    }
+    function renderTimer() {
+      const m = Math.floor(timer.remaining / 60).toString().padStart(2, '0');
+      const s = Math.floor(timer.remaining % 60).toString().padStart(2, '0');
+      $('ring-time').textContent = `${m}:${s}`;
+      $('ring-mode').textContent = timer.mode === 'work' ? 'Work session' : (timer.mode === 'long' ? 'Long break' : 'Short break');
+      $('ring-progress').setAttribute('stroke-dashoffset', (RING_CIRC * (1 - timer.remaining / timer.total)).toFixed(2));
+      $('ring-progress').style.stroke = timer.mode === 'work' ? 'var(--pen-green)' : 'var(--pen-blue)';
+      $('timer-start-btn').textContent = timer.running ? 'Pause' : 'Start';
+    }
+    function logWorkSession(seconds) {
+      timerSessions.push({
+        id: uid(),
+        course: $('timer-course').value,
+        unit: $('timer-unit').value,
+        seconds,
+        completedAt: Date.now()
+      });
+      idbSet('timerSessions', timerSessions);
+    }
+    function beep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 660;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        gain.gain.setValueAtTime(0.001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+      } catch (e) { }
+    }
+    function timerTick() {
+      timer.remaining--;
+      if (timer.remaining <= 0) {
+        beep();
+        const d = getDurations();
+        if (timer.mode === 'work') {
+          logWorkSession(timer.total);
+          timer.cyclesDone++;
+          const isLong = timer.cyclesDone % 4 === 0;
+          timer.mode = isLong ? 'long' : 'break';
+          timer.total = isLong ? d.long : d.brk;
+        } else {
+          timer.mode = 'work';
+          timer.total = d.work;
+        }
+        timer.remaining = timer.total;
+      }
+      renderTimer();
+    }
+
+    function renderProgress() {
+      const totalSeconds = timerSessions.reduce((sum, s) => sum + (s.seconds || 0), 0);
+      const completedDocs = documents.filter(d => (d.readingProgress || 0) >= 100).length;
+      const quizAvg = quizResults.length ? Math.round(quizResults.reduce((sum, r) => sum + r.score, 0) / quizResults.length) : 0;
+      const mastery = cards.length ? Math.round((cards.filter(c => c.mastered).length / cards.length) * 100) : 0;
+      $('stat-hours').textContent = `${(totalSeconds / 3600).toFixed(totalSeconds >= 36000 ? 0 : 1)}h`;
+      $('stat-docs').textContent = completedDocs;
+      $('stat-quiz').textContent = `${quizAvg}%`;
+      $('stat-cards').textContent = `${mastery}%`;
+      const groups = new Map();
+      documents.forEach(d => {
+        const key = courseUnitKey(d.course, d.unit);
+        if (!groups.has(key)) groups.set(key, { course: d.course || 'General', unit: d.unit || 'General', docs: [], cards: [], quizzes: [], sessions: [] });
+        groups.get(key).docs.push(d);
+      });
+      cards.forEach(c => {
+        const key = courseUnitKey(c.subject, c.unit);
+        if (!groups.has(key)) groups.set(key, { course: c.subject || 'General', unit: c.unit || 'General', docs: [], cards: [], quizzes: [], sessions: [] });
+        groups.get(key).cards.push(c);
+      });
+      quizResults.forEach(q => {
+        const key = courseUnitKey(q.course, q.unit);
+        if (!groups.has(key)) groups.set(key, { course: q.course || 'General', unit: q.unit || 'General', docs: [], cards: [], quizzes: [], sessions: [] });
+        groups.get(key).quizzes.push(q);
+      });
+      timerSessions.forEach(s => {
+        const key = courseUnitKey(s.course, s.unit);
+        if (!groups.has(key)) groups.set(key, { course: s.course || 'General', unit: s.unit || 'General', docs: [], cards: [], quizzes: [], sessions: [] });
+        groups.get(key).sessions.push(s);
+      });
+      $('progress-list').innerHTML = [...groups.values()].map(g => {
+        const read = g.docs.length ? Math.round(g.docs.reduce((sum, d) => sum + (d.readingProgress || 0), 0) / g.docs.length) : 0;
+        const gMastery = g.cards.length ? Math.round((g.cards.filter(c => c.mastered).length / g.cards.length) * 100) : 0;
+        const gQuiz = g.quizzes.length ? Math.round(g.quizzes.reduce((sum, q) => sum + q.score, 0) / g.quizzes.length) : 0;
+        const hours = g.sessions.reduce((sum, s) => sum + (s.seconds || 0), 0) / 3600;
+        return `<div class="list-row"><div><h4>${escapeHtml(g.course)} - ${escapeHtml(g.unit)}</h4><p>Reading ${read}% - Cards ${gMastery}% - Quiz ${gQuiz}% - Study ${hours.toFixed(1)}h</p></div></div>`;
+      }).join('') || '<div class="empty-state">No progress yet.</div>';
+      const weekStart = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const recent = timerSessions.filter(s => s.completedAt >= weekStart).sort((a, b) => b.completedAt - a.completedAt);
+      $('session-list').innerHTML = recent.slice(0, 8).map(s => `
+    <div class="list-row"><div><h4>${escapeHtml(s.course || 'General')} - ${escapeHtml(s.unit || 'General')}</h4><p>${Math.round(s.seconds / 60)} minutes on ${new Date(s.completedAt).toLocaleDateString()}</p></div></div>
+  `).join('') || '<div class="empty-state">No sessions this week.</div>';
+    }
+
+    function downloadJSON(data, filename) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    function readJSONFile(file, cb) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try { cb(JSON.parse(reader.result)); }
+        catch (e) { alert('Could not read that file. Make sure it is valid JSON.'); }
+      };
+      reader.readAsText(file);
+    }
+
+    function renderEverything() {
+      renderTaxonomy();
+      renderDocuments();
+      renderDeckBar();
+      renderCardList();
+      renderNotes();
+      renderProgress();
+    }
+
+    $('upload-doc-btn').addEventListener('click', addDocument);
+    ['doc-search', 'doc-sort', 'doc-filter'].forEach(id => $(id).addEventListener('input', renderDocuments));
+    $('active-doc-select').addEventListener('change', e => previewDocument(e.target.value));
+    $('open-doc-btn').addEventListener('click', () => $('active-doc-select').value && openRawDocument($('active-doc-select').value));
+    $('doc-progress').addEventListener('input', e => {
+      const doc = documents.find(d => d.id === currentPreviewDocId);
+      if (!doc) return;
+      doc.readingProgress = parseInt(e.target.value) || 0;
+      idbSet('documents', documents);
+      renderProgress();
+      renderDocuments();
+    });
+    $('chat-send').addEventListener('click', sendChat);
+    $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+    $('add-card-btn').addEventListener('click', addManualCard);
+    $('generate-cards-btn').addEventListener('click', generateFlashcardsFromDocument);
+    $('export-cards-btn').addEventListener('click', () => downloadJSON(cards, 'margin-flashcards.json'));
+    $('import-cards-btn').addEventListener('click', () => $('import-cards-file').click());
+    $('import-cards-file').addEventListener('change', e => readJSONFile(e.target.files[0], data => {
+      if (Array.isArray(data)) {
+        data.forEach(c => cards.push({ id: uid(), front: c.front || '', back: c.back || '', subject: c.subject || c.course || '', unit: c.unit || '', format: c.format || 'basic', aiGenerated: !!c.aiGenerated, mastered: !!c.mastered, createdAt: Date.now() }));
+        idbSet('cards', cards);
+        renderEverything();
+      }
+    }));
+    $('start-card-study-btn').addEventListener('click', startCardStudy);
+    $('flip-card').addEventListener('click', () => {
+      if (studyIndex >= studyDeck.length) return;
+      studyFlipped = !studyFlipped;
+      $('flip-card').classList.toggle('flipped', studyFlipped);
+      $('flip-card').textContent = studyFlipped ? studyDeck[studyIndex].back : studyDeck[studyIndex].front;
+    });
+    $('card-got-it-btn').addEventListener('click', () => markStudyCard(true));
+    $('card-again-btn').addEventListener('click', () => markStudyCard(false));
+    $('card-study-exit-btn').addEventListener('click', () => $('cards-study').classList.add('hidden'));
+    $('generate-quiz-btn').addEventListener('click', generateQuiz);
+    $('new-note-btn').addEventListener('click', () => openNoteForm(null));
+    $('cancel-note-btn').addEventListener('click', () => $('note-form').classList.add('hidden'));
+    $('save-note-btn').addEventListener('click', saveNote);
+    $('notes-search').addEventListener('input', renderNotes);
+    $('generate-notes-btn').addEventListener('click', generateNotesFromDocument);
+    $('export-notes-btn').addEventListener('click', () => downloadJSON(notes, 'margin-notes.json'));
+    $('import-notes-btn').addEventListener('click', () => $('import-notes-file').click());
+    $('import-notes-file').addEventListener('change', e => readJSONFile(e.target.files[0], data => {
+      if (Array.isArray(data)) {
+        data.forEach(n => notes.push({ id: uid(), title: n.title || '', tag: n.tag || '', unit: n.unit || '', body: n.body || '', aiGenerated: !!n.aiGenerated, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now() }));
+        idbSet('notes', notes);
+        renderEverything();
+      }
+    }));
+    $('timer-start-btn').addEventListener('click', () => {
+      timer.running = !timer.running;
+      if (timer.running) timer.intervalId = setInterval(timerTick, 1000);
+      else clearInterval(timer.intervalId);
+      renderTimer();
+    });
+    $('timer-reset-btn').addEventListener('click', () => {
+      clearInterval(timer.intervalId);
+      const d = getDurations();
+      timer = { mode: 'work', remaining: d.work, total: d.work, running: false, cyclesDone: 0, intervalId: null };
+      renderTimer();
+    });
+    ['work-min', 'break-min', 'long-min'].forEach(id => $(id).addEventListener('change', () => {
+      if (!timer.running) {
+        const d = getDurations();
+        timer.total = timer.mode === 'work' ? d.work : (timer.mode === 'long' ? d.long : d.brk);
+        timer.remaining = timer.total;
+        renderTimer();
+      }
+    }));
+
+    async function init() {
+      documents = await idbGet('documents') || [];
+      cards = await idbGet('cards') || [];
+      notes = await idbGet('notes') || [];
+      quizResults = await idbGet('quizResults') || [];
+      timerSessions = await idbGet('timerSessions') || [];
+      renderTimer();
+      renderEverything();
+      if (documents[0]) previewDocument(documents[0].id);
+    }
+    init();
+  </script>
+</body>
+
+</html>
