@@ -1012,7 +1012,7 @@
     const STORE = 'kv';
     const QUERY_API_BASE = new URLSearchParams(location.search).get('api') || '';
     const CONFIGURED_API_BASE = window.MARGIN_API_BASE || QUERY_API_BASE || localStorage.getItem('margin-api-base') || '';
-    const DEPLOYED_API_BASE = 'https://YOUR-BACKEND-URL-HERE';
+    const DEPLOYED_API_BASE = 'https://studybuddy2-r2i6.onrender.com';
     const API_TIMEOUT_MS = 45000;
     let dbPromise = null;
 
@@ -1116,9 +1116,13 @@
       }
 
       const tried = bases.join(', ');
-      if (lastError?.name === 'AbortError') throw new Error(`The backend did not respond in time. Tried: ${tried}`);
-      throw new Error(`Could not reach the backend. Start the Express server or set window.MARGIN_API_BASE. Tried: ${tried}`);
+      const last = lastError?.message || String(lastError || 'Unknown error');
+      if (lastError?.name === 'AbortError') {
+        throw new Error(`Backend timeout calling ${path}. Tried: ${tried}. Last error: ${last}`);
+      }
+      throw new Error(`Could not reach backend for ${path}. Tried: ${tried}. Last error: ${last}`);
     }
+
     function persistAll() {
       idbSet('documents', documents);
       idbSet('cards', cards);
@@ -1445,7 +1449,8 @@
     }
     async function generateFlashcardsFromDocument() {
       const doc = documents.find(d => d.id === $('flashcard-doc-select').value);
-      if (!doc) return setStatus('cards-ai-status', 'Upload a document first.');
+      if (!doc) return setStatus('cards-ai-status', 'Upload a document first. (No document selected)');
+
       setStatus('cards-ai-status', 'Generating cards...');
       $('generate-cards-btn').disabled = true;
       try {
@@ -1575,7 +1580,8 @@
     }
     async function generateNotesFromDocument() {
       const doc = documents.find(d => d.id === $('notes-doc-select').value);
-      if (!doc) return setStatus('notes-ai-status', 'Upload a document first.');
+      if (!doc) return setStatus('notes-ai-status', 'Upload a document first. (No document selected)');
+
       setStatus('notes-ai-status', 'Generating notes...');
       $('generate-notes-btn').disabled = true;
       try {
@@ -1628,7 +1634,8 @@
 
     async function generateQuiz() {
       const doc = documents.find(d => d.id === $('quiz-doc-select').value);
-      if (!doc) return setStatus('quiz-status', 'Upload a document first.');
+      if (!doc) return setStatus('quiz-status', 'Upload a document first. (No document selected)');
+
       setStatus('quiz-status', 'Generating quiz...');
       $('generate-quiz-btn').disabled = true;
       try {
