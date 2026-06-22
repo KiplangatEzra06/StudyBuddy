@@ -77,6 +77,58 @@ async function callClaude({ system, messages, maxTokens = 1600 }) {
   return response.json();
 }
 
+function extractGeminiText(data) {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map(p => p?.text)
+    .filter(Boolean)
+    .join('') || '';
+}
+
+async function callGemini({ system, messages, maxTokens = 1600 }) {
+  if (!process.env.GEMINI_API_KEY) {
+    const error = new Error('GEMINI_API_KEY is not configured');
+    error.status = 500;
+    throw error;
+  }
+
+  const contents = (messages || []).map(m => {
+    const role = m?.role === 'assistant' ? 'model' : 'user';
+    return {
+      role,
+      parts: [{ text: m?.content ?? '' }]
+    };
+  });
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_MODEL || 'gemini-2.5-flash')}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: system || '' }]
+      },
+      contents,
+      generationConfig: {
+        maxOutputTokens: maxTokens
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const details = await response.json().catch(() => ({}));
+    console.error('Gemini API error:', details);
+    const error = new Error('Failed to get response from Gemini');
+    error.status = response.status;
+    throw error;
+  }
+
+  return response.json();
+}
+
+
 function validateDocument(req, res) {
   const { document } = req.body;
   if (!document || typeof document.text !== 'string' || !document.text.trim()) {
@@ -108,7 +160,7 @@ app.post('/api/tutor', async (req, res) => {
   }
 
   try {
-    const data = await callClaude({
+    const data = await callGemini({
       maxTokens: 1024,
       system: `You are a clear, encouraging study tutor helping a university software engineering student.
 Explain concepts step by step, use concrete examples, and keep answers focused and exam-relevant.
@@ -120,7 +172,7 @@ Keep responses concise, with a maximum of about 500 words.`,
       }))
     });
 
-    const textBlock = extractText(data);
+    const textBlock = extractGeminiText(data);
     if (!textBlock) {
       return res.status(500).json({ error: 'No response text received' });
     }
