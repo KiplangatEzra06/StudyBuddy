@@ -59,7 +59,7 @@ async function callClaude({ system, messages, maxTokens = 1600 }) {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || 'claude-opus-4-1',
+      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
       max_tokens: maxTokens,
       system,
       messages
