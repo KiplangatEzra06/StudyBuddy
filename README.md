@@ -6,43 +6,31 @@ Margin is a local-first study web app with documents, AI notes, AI flashcards, q
 
 ### Frontend
 
-Open `StudyBuddy.html` in a modern browser. The app stores local data in IndexedDB, so documents, notes, flashcards, quiz results, and timer sessions survive page reloads in the same browser.
+Open `index.html` in a modern browser. Keep `styles.css` and `app.js` alongside it: the stylesheet contains the app's presentation, and the JavaScript file contains its existing app behavior and integrations. The app stores local data in IndexedDB, so documents, notes, flashcards, quiz results, and timer sessions survive page reloads in the same browser.
 
 PDF parsing uses pdf.js from a CDN. TXT files work with the browser File API.
 
 ### Backend
 
-The Tutor tab and AI generation features require the Express backend so the Anthropic API key stays server-side.
+The Tutor tab and AI generation features call the Express backend, which proxies requests to Ollama Cloud.
 
 ```bash
 npm install
-cp .env.example .env
-npm start
 ```
 
-Create `.env` with:
+Copy `.env.example` to `.env` and set `OLLAMA_API_KEY`, `ACCESS_TOKEN`, and `FRONTEND_ORIGIN`. For local use, `FRONTEND_ORIGIN` is `http://localhost:3000`; run `npm start` and open the app at that address. The Tutor panel saves the access token in this browser and sends it only to the backend.
 
-```text
-ANTHROPIC_API_KEY=sk-ant-...your-key-here...
-PORT=3000
-CORS_ORIGIN=*
-```
-
-Optional:
-
-```text
-ANTHROPIC_MODEL=claude-opus-4-1
-```
+The token is a solo-use gate, not a way to secure a public frontend: anyone with access to the site can inspect requests and use the token. Keep the frontend private and rotate the token if access changes.
 
 ## Backend Routes
 
-- `POST /api/tutor`
+- `POST /api/ai` with `{ "input": "...", "history": [] }`, returns `{ "reply": "..." }`
 - `POST /api/generate-notes`
 - `POST /api/generate-flashcards`
 - `POST /api/generate-quiz`
 - `GET /health`
 
-The AI generation routes expect a document payload with extracted text and return JSON that the frontend can render and store.
+The document generation routes expect a document payload with extracted text and return validated JSON that the frontend can render and store. Every `/api` request requires the `x-access-token` header.
 
 ## Features
 
@@ -55,7 +43,9 @@ The AI generation routes expect a document payload with extracted text and retur
 
 ## Deployment Note
 
-`StudyBuddy.html` uses `http://localhost:3000` when opened locally. For GitHub Pages, set `window.MARGIN_API_BASE` before the main script or replace `https://YOUR-BACKEND-URL-HERE` with the deployed backend URL.
+`index.html` loads `app.js` from the same directory. The app's default backend URL is configured at the start of `app.js`; update `window.MARGIN_API_BASE` if the frontend is hosted separately from the backend. Set `FRONTEND_ORIGIN` in Render to the exact browser origin, without a trailing slash.
+
+Add these environment variables in Render's dashboard: `OLLAMA_API_KEY`, `OLLAMA_BASE_URL` (`https://ollama.com`), `OLLAMA_MODEL` (`gpt-oss:20b`), `ACCESS_TOKEN` (a long random value), and `FRONTEND_ORIGIN` (the exact frontend origin). Render supplies `PORT` automatically.
 
 ## Data
 
