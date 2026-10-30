@@ -74,6 +74,17 @@ function normalizeAnswer(value) { return String(value || '').trim().toLowerCase(
 function courseUnitKey(course, unit) { return `${course || 'General'}|${unit || 'General'}`; }
 function truncateText(text, max = 12000) { return String(text || '').slice(0, max); }
 function setStatus(id, text) { $(id).textContent = text; }
+async function apiErrorMessage(response, fallback) {
+  const body = await response.text();
+  try {
+    const data = JSON.parse(body);
+    if (typeof data.error === 'string' && data.error) return data.error;
+  } catch { }
+  const plainText = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return plainText && plainText.length <= 240
+    ? plainText
+    : `${fallback} (${response.status}). Please try again.`;
+}
 function cleanApiBase(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
@@ -360,8 +371,9 @@ async function sendChat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ input: q, history: chatHistory.slice(0, -1) })
     });
+    if (!res.ok) throw new Error(await apiErrorMessage(res, 'The AI request failed'));
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.error) throw new Error(data.error || `The AI request failed (${res.status}). Please try again.`);
+    if (data.error) throw new Error(data.error);
     const textBlock = data.reply || 'The AI did not return a response. Please try again.';
     loadingEl.remove();
     addMsg('assistant', textBlock);
@@ -629,8 +641,9 @@ async function callAI(path, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'The AI request failed'));
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.error) throw new Error(data.error || `Server error: ${res.status}`);
+  if (data.error) throw new Error(data.error);
   return data;
 }
 

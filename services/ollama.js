@@ -2,6 +2,14 @@ const fetch = require('node-fetch');
 
 const REQUEST_TIMEOUT_MS = 60000;
 
+function redactSecrets(text) {
+    let safeText = text;
+    for (const secret of [process.env.OLLAMA_API_KEY, process.env.ACCESS_TOKEN].filter(Boolean)) {
+        safeText = safeText.split(secret).join('[REDACTED]');
+    }
+    return safeText.replace(/Bearer\s+[^\s"']+/gi, 'Bearer [REDACTED]').slice(0, 2000);
+}
+
 async function callOllama(messages) {
     if (!process.env.OLLAMA_API_KEY) {
         const error = new Error('OLLAMA_API_KEY is not configured');
@@ -33,8 +41,13 @@ async function callOllama(messages) {
 
             if (!response.ok) {
                 const responseText = await response.text();
-                const error = new Error(`Ollama request failed (${response.status}): ${responseText}`);
-                error.status = response.status;
+                console.error('Ollama Cloud request failed', {
+                    status: response.status,
+                    body: redactSecrets(responseText)
+                });
+                const error = new Error(`Ollama rejected the request (upstream status: ${response.status})`);
+                error.status = 502;
+                error.upstreamStatus = response.status;
                 if (response.status >= 500 && attempt === 0) continue;
                 throw error;
             }

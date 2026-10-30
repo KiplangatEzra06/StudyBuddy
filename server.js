@@ -25,7 +25,7 @@ app.use((req, res, next) => {
   res.vary('Origin');
   if (origin) {
     if (!process.env.FRONTEND_ORIGIN || origin !== process.env.FRONTEND_ORIGIN) {
-      return res.sendStatus(403);
+      return res.status(403).json({ error: 'Blocked by CORS' });
     }
     res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_ORIGIN);
   }
@@ -43,7 +43,7 @@ const aiLimiter = rateLimit({
 });
 app.use('/api', aiLimiter, (req, res, next) => {
   if (!process.env.ACCESS_TOKEN || req.get('x-access-token') !== process.env.ACCESS_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized. Check your access token.' });
+    return res.status(401).json({ error: 'Invalid access token' });
   }
   next();
 });
@@ -103,6 +103,11 @@ function getDocumentMessages(prompt, document) {
 }
 
 function sendAiError(res, error, fallback) {
+  if (error.upstreamStatus) {
+    return res.status(502).json({
+      error: `Ollama rejected the request (upstream status: ${error.upstreamStatus})`
+    });
+  }
   const status = error.status || 502;
   const message = status === 502 && error.message.includes('malformed JSON')
     ? error.message
