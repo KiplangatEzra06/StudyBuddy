@@ -1,29 +1,33 @@
-// Force the frontend to use the real Express backend (not GitHub Pages static hosting)
-window.MARGIN_API_BASE = window.MARGIN_API_BASE || (
-  location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-    ? ''
-    : 'https://studybuddy2-r2i6.onrender.com'
-);
-
 const DB_NAME = 'margin-db';
 const STORE = 'kv';
-const QUERY_API_BASE = new URLSearchParams(location.search).get('api') || '';
-const CONFIGURED_API_BASE = window.MARGIN_API_BASE || QUERY_API_BASE || localStorage.getItem('margin-api-base') || '';
-const DEPLOYED_API_BASE = 'https://studybuddy2-r2i6.onrender.com';
 const API_TIMEOUT_MS = 75000;
 const ACCESS_TOKEN_KEY = 'studybuddy-access-token';
 const TUTOR_MATERIAL_KEY = 'studybuddy-tutor-material';
 const NOTE_CLEANUP_KEY = 'studybuddy-note-cleanup-version';
 const BACKUP_FORMAT = 'studybuddy-data';
 const BACKUP_VERSION = 1;
-const BACKUP_COLLECTIONS = ['documents', 'cards', 'notes', 'quizResults', 'timerSessions', 'classes', 'assignments'];
+const BACKUP_COLLECTIONS = ['documents', 'cards', 'notes', 'quizResults', 'timerSessions', 'classes', 'assignments', 'tutorConversations'];
 const REQUIRED_BACKUP_COLLECTIONS = ['documents', 'cards', 'notes', 'quizResults', 'timerSessions'];
+const BACKUP_LOCAL_SETTINGS = [
+  'studybuddy-theme',
+  'studybuddy-tutor-material',
+  'studybuddy-assignment-reminders',
+  'studybuddy-timer-sound',
+  'studybuddy-timer-notification'
+];
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const REMINDERS_ENABLED_KEY = 'studybuddy-assignment-reminders';
+const FLASHCARD_IMPORT_DONE_KEY = 'studybuddy-flashcards-neon-imported';
+const FLASHCARD_VIEW_KEY = 'studybuddy-flashcards-active-view';
 let dbPromise = null;
 
 let documents = [];
 let cards = [];
+let decks = [];
+let flashcardDueCount = 0;
+let currentFlashcardDeckFilter = 'all';
+let flashcardPastedSource = '';
+let flashcardSelectedSource = 'paste';
 let notes = [];
 let quizResults = [];
 let timerSessions = [];
@@ -35,9 +39,12 @@ let editingNoteId = null;
 let editingCardId = null;
 let currentPreviewDocId = null;
 let chatHistory = [];
+let tutorConversations = [];
+let activeConversationId = null;
 let studyDeck = [];
 let studyIndex = 0;
 let studyFlipped = false;
+let studySessionResults = { mastered: 0, review: 0 };
 let currentQuiz = null;
 let editingClassId = null;
 let editingAssignmentId = null;
@@ -45,10 +52,24 @@ let reminderIntervalId = null;
 let selectedNoteId = null;
 let noteAutosaveTimer = null;
 let chatPending = false;
+let chatAbortController = null;
+let chatWakeTimer = 0;
+let chatWakeMessage = '';
+let chatStreamingReply = '';
+let chatAtLatest = true;
+let tutorAuthRejected = false;
+let lastTutorQuestion = '';
+let learningPreviewCards = [];
+let learningReviewCards = [];
+let learningReviewIndex = 0;
+let learningReviewDueCount = 0;
+let learningReviewShownAt = 0;
+let learningReviewGraded = false;
+let learningReviewLoading = false;
+let learningStatsLoading = false;
 let studyMaterialIndex = new Map();
 let calendarMonthOffset = 0;
 let classesView = 'classes';
-let chatPageIndex = 0;
 let historyPageIndex = 0;
 let documentPageIndex = 0;
 let documentTextPages = [];
@@ -88,6 +109,211 @@ async function idbGet(key) {
   } catch (e) { console.warn('Could not load', key, e); return undefined; }
 }
 
+function confirmDeletion({ title, description, affected = '', choices, bulk = false }) {
+  const dialog = $('confirm-delete-dialog');
+  const actions = $('confirm-delete-actions');
+  const typing = $('confirm-delete-typing');
+  const bulkControls = $('bulk-delete-confirm');
+  $('confirm-delete-title').textContent = title;
+  $('confirm-delete-description').textContent = description;
+  $('confirm-delete-affected').textContent = affected;
+  $('confirm-delete-affected').classList.toggle('hidden', !affected);
+  bulkControls.classList.toggle('hidden', !bulk);
+  typing.value = '';
+  actions.replaceChildren();
+
+  return new Promise(resolve => {
+    let settled = false;
+    const bulkButtons = [];
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      dialog.removeEventListener('cancel', onCancel);
+      dialog.removeEventListener('close', onClose);
+      typing.oninput = null;
+      dialog.close();
+      resolve(value);
+    };
+    const onCancel = event => {
+      event.preventDefault();
+      finish(null);
+    };
+    const onClose = () => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    };
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'btn btn-secondary';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => finish(null));
+    actions.append(cancel);
+    (choices || [{ key: 'delete', label: 'Delete' }]).forEach(choice => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `btn ${choice.danger === false ? 'btn-secondary' : 'btn-danger'}`;
+      button.textContent = choice.label;
+      button.disabled = bulk;
+      button.addEventListener('click', () => finish(choice.key));
+      actions.append(button);
+      if (bulk) bulkButtons.push(button);
+    });
+    typing.oninput = () => bulkButtons.forEach(button => { button.disabled = typing.value !== 'DELETE'; });
+    dialog.addEventListener('cancel', onCancel);
+    dialog.addEventListener('close', onClose);
+    $('confirm-delete-close').onclick = () => finish(null);
+    $('export-backup-first').onclick = event => {
+      event.preventDefault();
+      $('export-all-data-btn').click();
+    };
+    dialog.showModal();
+    cancel.focus();
+  });
+}
+
+const undoableCollections = {
+  get documents() { return documents; },
+  set documents(value) { documents = value; },
+  get cards() { return cards; },
+  set cards(value) { cards = value; },
+  get notes() { return notes; },
+  set notes(value) { notes = value; },
+  get quizResults() { return quizResults; },
+  set quizResults(value) { quizResults = value; },
+  get timerSessions() { return timerSessions; },
+  set timerSessions(value) { timerSessions = value; },
+  get classes() { return classes; },
+  set classes(value) { classes = value; },
+  get assignments() { return assignments; },
+  set assignments(value) { assignments = value; },
+  get tutorConversations() { return tutorConversations; },
+  set tutorConversations(value) { tutorConversations = value; }
+};
+let deletedRecords = [];
+const undoTimers = new Map();
+
+async function softDeleteRecords(changes, message, updates = []) {
+  const snapshot = { id: uid(), entries: [], rollback: [], expiresAt: Date.now() + 8000 };
+  updates.forEach(update => {
+    const collection = undoableCollections[update.collection];
+    if (!Array.isArray(collection)) throw new Error(`Unknown collection: ${update.collection}`);
+    snapshot.rollback.push({ collection: update.collection, records: collection });
+    undoableCollections[update.collection] = update.records;
+    if (update.collection !== 'cards') idbSet(update.collection, update.records);
+  });
+  for (const change of changes) {
+    const collection = undoableCollections[change.collection];
+    if (!Array.isArray(collection)) throw new Error(`Unknown collection: ${change.collection}`);
+    const removeIds = new Set(change.ids);
+    const removed = collection.filter(record => removeIds.has(record.id));
+    if (!removed.length) continue;
+    if (change.collection === 'cards') {
+      await Promise.all(removed.map(card => flashcardApi(`/api/cards/${encodeURIComponent(card.id)}`, undefined, 'DELETE')));
+    }
+    snapshot.entries.push({ collection: change.collection, records: removed });
+    undoableCollections[change.collection] = collection.filter(record => !removeIds.has(record.id));
+    if (change.collection !== 'cards') idbSet(change.collection, undoableCollections[change.collection]);
+  }
+  if (!snapshot.entries.length) return;
+  if (snapshot.entries.some(entry => entry.collection === 'cards')) {
+    try {
+      await refreshFlashcardData(false);
+    } catch (error) {
+      setStatus('flashcards-storage-status', error.message || 'The deleted card count could not be refreshed.');
+    }
+  }
+  deletedRecords.push(snapshot);
+  await idbSet('deletedRecords', deletedRecords);
+  showUndoToast(snapshot, message);
+  renderEverything();
+  undoTimers.set(snapshot.id, setTimeout(() => purgeUndoSnapshot(snapshot.id), 8000));
+}
+
+function showUndoToast(snapshot, message) {
+  $('undo-toast-message').textContent = message;
+  $('undo-toast').classList.remove('hidden');
+  $('undo-toast-action').onclick = () => undoDelete(snapshot.id);
+}
+
+async function purgeUndoSnapshot(id) {
+  const snapshot = deletedRecords.find(item => item.id === id);
+  if (snapshot) {
+    try {
+      const deletedCards = snapshot.entries.find(entry => entry.collection === 'cards')?.records || [];
+      await Promise.all(deletedCards.map(card => flashcardApi(
+        `/api/cards/${encodeURIComponent(card.id)}?purge=true`,
+        undefined,
+        'DELETE'
+      )));
+    } catch (error) {
+      console.error('Could not permanently delete flashcards', error);
+      setStatus('flashcards-storage-status', error.message || 'A deleted flashcard could not be permanently removed yet.');
+      snapshot.expiresAt = Date.now() + 8000;
+      undoTimers.set(snapshot.id, setTimeout(() => purgeUndoSnapshot(snapshot.id), 8000));
+      await idbSet('deletedRecords', deletedRecords);
+      return;
+    }
+  }
+  undoTimers.delete(id);
+  deletedRecords = deletedRecords.filter(snapshot => snapshot.id !== id);
+  await idbSet('deletedRecords', deletedRecords);
+  if (deletedRecords.length) showUndoToast(deletedRecords.at(-1), 'An item was deleted.');
+  else $('undo-toast').classList.add('hidden');
+}
+
+async function undoDelete(id) {
+  const index = deletedRecords.findIndex(snapshot => snapshot.id === id);
+  if (index < 0) return;
+  const [snapshot] = deletedRecords.splice(index, 1);
+  clearTimeout(undoTimers.get(id));
+  undoTimers.delete(id);
+  try {
+    const deletedCards = snapshot.entries.find(entry => entry.collection === 'cards')?.records || [];
+    await Promise.all(deletedCards.map(card => flashcardApi(
+      `/api/cards/${encodeURIComponent(card.id)}/restore`,
+      {},
+      'POST'
+    )));
+  } catch (error) {
+    deletedRecords.splice(index, 0, snapshot);
+    console.error('Could not restore flashcards', error);
+    setStatus('flashcards-storage-status', error.message || 'Could not undo the flashcard deletion.');
+    return;
+  }
+  snapshot.entries.forEach(entry => {
+    const current = undoableCollections[entry.collection];
+    const existing = new Set(current.map(record => record.id));
+    undoableCollections[entry.collection] = [...current, ...entry.records.filter(record => !existing.has(record.id))];
+    if (entry.collection !== 'cards') idbSet(entry.collection, undoableCollections[entry.collection]);
+  });
+  snapshot.rollback?.forEach(entry => {
+    undoableCollections[entry.collection] = entry.records;
+    if (entry.collection !== 'cards') idbSet(entry.collection, entry.records);
+  });
+  if (snapshot.entries.some(entry => entry.collection === 'cards')) {
+    try {
+      await refreshFlashcardData(false);
+    } catch (error) {
+      setStatus('flashcards-storage-status', error.message || 'The restored card count could not be refreshed.');
+    }
+  }
+  await idbSet('deletedRecords', deletedRecords);
+  renderEverything();
+  if (deletedRecords.length) showUndoToast(deletedRecords.at(-1), 'An item was deleted.');
+  else $('undo-toast').classList.add('hidden');
+}
+
+function confirmBulkDeletion(description) {
+  return confirmDeletion({
+    title: 'Confirm bulk deletion',
+    description,
+    affected: 'This action cannot be undone. Export a backup first if you may need these records.',
+    bulk: true
+  });
+}
+
 function changeDocumentPage(index) {
   documentPageIndex = Math.max(0, Math.min(Number(index) || 0, documentTextPages.length - 1));
   renderDocumentPage();
@@ -96,6 +322,305 @@ function changeDocumentPage(index) {
 const $ = id => document.getElementById(id);
 function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+const customSelects = new WeakMap();
+let activeCustomSelect = null;
+let selectTypeahead = '';
+let selectTypeaheadTimer = 0;
+
+function selectAccessibleName(select, trigger) {
+  if (select.getAttribute('aria-label')) return select.getAttribute('aria-label');
+  const label = select.labels?.[0];
+  if (label) {
+    const clone = label.cloneNode(true);
+    clone.querySelectorAll('select, .custom-select-wrap').forEach(element => element.remove());
+    const text = clone.textContent.trim();
+    if (text) return text;
+  }
+  return trigger.textContent.trim() || 'Choose an option';
+}
+
+function syncCustomSelect(select) {
+  const state = customSelects.get(select);
+  if (!state) return;
+  const selected = select.selectedOptions[0];
+  state.value.textContent = selected?.label || selected?.textContent || 'Select';
+  state.trigger.disabled = select.disabled;
+  state.trigger.setAttribute('aria-label', selectAccessibleName(select, state.trigger));
+  state.trigger.setAttribute('aria-expanded', String(state.popover.classList.contains('open')));
+  state.trigger.setAttribute('aria-controls', state.list.id);
+  state.trigger.setAttribute('aria-haspopup', 'listbox');
+  state.trigger.setAttribute('role', 'combobox');
+  renderCustomSelectOptions(select);
+}
+
+function renderCustomSelectOptions(select) {
+  const state = customSelects.get(select);
+  if (!state) return;
+  const options = [...select.options];
+  state.list.replaceChildren();
+  state.searchWrap.hidden = options.length <= 8;
+  const fragment = document.createDocumentFragment();
+  options.forEach((option, index) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.id = `${state.list.id}-option-${index}`;
+    item.className = 'custom-select-option';
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(option.selected));
+    item.setAttribute('aria-disabled', String(option.disabled));
+    item.tabIndex = -1;
+    item.disabled = option.disabled;
+    item.dataset.optionIndex = String(index);
+    item.textContent = option.label || option.textContent;
+    item.addEventListener('click', () => {
+      if (option.disabled) return;
+      select.selectedIndex = index;
+      select.dispatchEvent(new Event('input', { bubbles: true }));
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      syncCustomSelect(select);
+      closeCustomSelect(state, true);
+    });
+    fragment.append(item);
+  });
+  state.list.append(fragment);
+  state.empty.hidden = options.length > 0;
+  const query = state.search.value.trim().toLocaleLowerCase();
+  if (query) filterCustomSelectOptions(state);
+}
+
+function filterCustomSelectOptions(state) {
+  const query = state.search.value.trim().toLocaleLowerCase();
+  let visibleCount = 0;
+  state.list.querySelectorAll('[role="option"]').forEach(option => {
+    const visible = option.textContent.toLocaleLowerCase().includes(query);
+    option.hidden = !visible;
+    if (visible) visibleCount++;
+  });
+  state.empty.hidden = visibleCount > 0;
+}
+
+function positionCustomSelect(state) {
+  const bounds = state.trigger.getBoundingClientRect();
+  const margin = 8;
+  const below = window.innerHeight - bounds.bottom;
+  const above = bounds.top;
+  const maxHeight = Math.min(360, window.innerHeight - margin * 2);
+  const openAbove = below < Math.min(240, maxHeight) && above > below;
+  state.popover.style.maxHeight = `${maxHeight}px`;
+  state.popover.style.width = `${Math.max(180, bounds.width)}px`;
+  state.popover.style.left = `${Math.min(Math.max(margin, bounds.left), window.innerWidth - Math.max(180, bounds.width) - margin)}px`;
+  state.popover.style.top = openAbove
+    ? `${Math.max(margin, bounds.top - Math.min(state.popover.offsetHeight, above - margin))}px`
+    : `${Math.min(window.innerHeight - margin - state.popover.offsetHeight, bounds.bottom)}px`;
+}
+
+function closeCustomSelect(state, restoreFocus = false) {
+  state.popover.classList.remove('open');
+  state.popover.setAttribute('aria-hidden', 'true');
+  state.trigger.setAttribute('aria-expanded', 'false');
+  if (activeCustomSelect === state) activeCustomSelect = null;
+  if (restoreFocus) state.trigger.focus();
+}
+
+function openCustomSelect(state) {
+  if (activeCustomSelect && activeCustomSelect !== state) closeCustomSelect(activeCustomSelect);
+  activeCustomSelect = state;
+  syncCustomSelect(state.select);
+  state.search.value = '';
+  filterCustomSelectOptions(state);
+  state.popover.classList.add('open');
+  state.popover.setAttribute('aria-hidden', 'false');
+  state.trigger.setAttribute('aria-expanded', 'true');
+  positionCustomSelect(state);
+  const selectedIndex = state.select.selectedIndex;
+  const selectedOption = state.list.querySelector(`[data-option-index="${selectedIndex}"]`);
+  const firstOption = state.list.querySelector('[role="option"]:not([hidden]):not(:disabled)');
+  const active = selectedOption && !selectedOption.hidden && !selectedOption.disabled ? selectedOption : firstOption;
+  active?.classList.add('active');
+  if (state.searchWrap.hidden) active?.focus();
+  else state.search.focus();
+}
+
+function moveCustomSelectFocus(state, direction) {
+  const options = [...state.list.querySelectorAll('[role="option"]:not([hidden]):not(:disabled)')];
+  if (!options.length) return;
+  const current = options.indexOf(document.activeElement);
+  const next = current < 0
+    ? Math.max(0, options.findIndex(option => option.getAttribute('aria-selected') === 'true'))
+    : (current + direction + options.length) % options.length;
+  options.forEach(option => option.classList.toggle('active', options[next] === option));
+  options[next].focus();
+  options[next].scrollIntoView({ block: 'nearest' });
+}
+
+function handleCustomSelectKeydown(state, event) {
+  const { key } = event;
+  if (key === 'Escape') {
+    event.preventDefault();
+    closeCustomSelect(state, true);
+    return;
+  }
+  if (key === 'ArrowDown' || key === 'ArrowUp') {
+    event.preventDefault();
+    if (!state.popover.classList.contains('open')) {
+      openCustomSelect(state);
+      return;
+    }
+    moveCustomSelectFocus(state, key === 'ArrowDown' ? 1 : -1);
+    return;
+  }
+  if (key === 'Home' || key === 'End') {
+    if (!state.popover.classList.contains('open')) return;
+    event.preventDefault();
+    const options = [...state.list.querySelectorAll('[role="option"]:not([hidden]):not(:disabled)')];
+    const target = key === 'Home' ? options[0] : options.at(-1);
+    target?.focus();
+    target?.scrollIntoView({ block: 'nearest' });
+    return;
+  }
+  if (key === 'Enter' || key === ' ') {
+    if (!state.popover.classList.contains('open')) {
+      event.preventDefault();
+      openCustomSelect(state);
+    } else if (event.target.matches('[role="option"]')) {
+      event.preventDefault();
+      event.target.click();
+    } else if (key === 'Enter') {
+      const active = state.list.querySelector('.active:not([hidden]):not(:disabled)');
+      if (active) {
+        event.preventDefault();
+        active.click();
+      }
+    }
+    return;
+  }
+  if (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (!state.popover.classList.contains('open')) openCustomSelect(state);
+    if (!state.searchWrap.hidden) {
+      if (event.target !== state.search) {
+        event.preventDefault();
+        state.search.value = key;
+        filterCustomSelectOptions(state);
+        state.search.focus();
+      }
+      return;
+    }
+    selectTypeahead += key.toLocaleLowerCase();
+    clearTimeout(selectTypeaheadTimer);
+    selectTypeaheadTimer = setTimeout(() => { selectTypeahead = ''; }, 700);
+    const options = [...state.list.querySelectorAll('[role="option"]:not(:disabled)')];
+    const activeIndex = options.indexOf(document.activeElement);
+    const start = activeIndex < 0 ? 0 : activeIndex + 1;
+    const ordered = [...options.slice(start), ...options.slice(0, start)];
+    const match = ordered.find(option => option.textContent.trim().toLocaleLowerCase().startsWith(selectTypeahead));
+    if (match) {
+      state.list.querySelectorAll('.active').forEach(option => option.classList.remove('active'));
+      match.classList.add('active');
+      match.focus();
+      match.scrollIntoView({ block: 'nearest' });
+    }
+  }
+}
+
+function enhanceSelect(select) {
+  if (customSelects.has(select)) return;
+  const wrap = document.createElement('span');
+  wrap.className = `custom-select-wrap ${[...select.classList].join(' ')}`.trim();
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'custom-select-trigger';
+  const value = document.createElement('span');
+  value.className = 'custom-select-value';
+  const chevron = document.createElement('span');
+  chevron.className = 'custom-select-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  chevron.textContent = '⌄';
+  trigger.append(value, chevron);
+  const popover = document.createElement('div');
+  popover.className = 'custom-select-popover';
+  popover.setAttribute('aria-hidden', 'true');
+  const searchWrap = document.createElement('div');
+  searchWrap.className = 'custom-select-search-wrap';
+  const search = document.createElement('input');
+  search.type = 'search';
+  search.className = 'custom-select-search';
+  search.placeholder = 'Search options';
+  search.setAttribute('aria-label', 'Search dropdown options');
+  const list = document.createElement('div');
+  list.className = 'custom-select-list';
+  list.id = `custom-select-list-${uid()}`;
+  list.setAttribute('role', 'listbox');
+  const empty = document.createElement('p');
+  empty.className = 'custom-select-empty';
+  empty.textContent = 'No matching options';
+  empty.hidden = true;
+  searchWrap.append(search);
+  popover.append(searchWrap, list, empty);
+  const state = { select, wrap, trigger, value, popover, searchWrap, search, list, empty };
+  customSelects.set(select, state);
+  select.parentNode.insertBefore(wrap, select.nextSibling);
+  wrap.append(trigger);
+  (select.closest('dialog') || document.body).append(popover);
+  select.classList.add('custom-select-native');
+  select.setAttribute('aria-hidden', 'true');
+  select.tabIndex = -1;
+  trigger.addEventListener('click', () => {
+    if (popover.classList.contains('open')) closeCustomSelect(state);
+    else openCustomSelect(state);
+  });
+  trigger.addEventListener('keydown', event => handleCustomSelectKeydown(state, event));
+  list.addEventListener('keydown', event => handleCustomSelectKeydown(state, event));
+  search.addEventListener('input', () => {
+    filterCustomSelectOptions(state);
+    const first = list.querySelector('[role="option"]:not([hidden]):not(:disabled)');
+    list.querySelectorAll('.active').forEach(option => option.classList.remove('active'));
+    first?.classList.add('active');
+  });
+  search.addEventListener('keydown', event => handleCustomSelectKeydown(state, event));
+  const observer = new MutationObserver(() => syncCustomSelect(select));
+  observer.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'label', 'value'] });
+  state.observer = observer;
+  syncCustomSelect(select);
+}
+
+function initializeCustomControls() {
+  document.querySelectorAll('select').forEach(enhanceSelect);
+  const switchIds = ['calendar-reminders-enabled', 'tutor-use-material', 'settings-tutor-material', 'timer-sound-enabled', 'timer-notification-enabled'];
+  switchIds.forEach(id => {
+    const input = $(id);
+    if (!input) return;
+    const label = input.closest('label');
+    if (!label || input.classList.contains('app-switch-input')) return;
+    input.classList.add('app-switch-input');
+    input.setAttribute('role', 'switch');
+    const track = document.createElement('span');
+    track.className = 'app-switch-track';
+    track.setAttribute('aria-hidden', 'true');
+    input.after(track);
+    label.classList.add('app-switch-label');
+    const sync = () => input.setAttribute('aria-checked', String(input.checked));
+    input.addEventListener('change', sync);
+    input.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      input.checked = !input.checked;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    sync();
+  });
+  document.addEventListener('pointerdown', event => {
+    if (activeCustomSelect && !activeCustomSelect.popover.contains(event.target) && !activeCustomSelect.wrap.contains(event.target)) {
+      closeCustomSelect(activeCustomSelect);
+    }
+  });
+  window.addEventListener('resize', () => {
+    if (activeCustomSelect) positionCustomSelect(activeCustomSelect);
+  });
+  window.addEventListener('scroll', () => {
+    if (activeCustomSelect) positionCustomSelect(activeCustomSelect);
+  }, true);
+}
+
 function paginateToFit(container, options = {}) {
   if (!container) return;
   const key = container.id || container;
@@ -227,61 +752,35 @@ async function apiErrorMessage(response, fallback) {
     ? plainText
     : `${fallback} (${response.status}). Please try again.`;
 }
-function cleanApiBase(value) {
-  return String(value || '').trim().replace(/\/+$/, '');
-}
-function apiBaseCandidates() {
-  // Prefer the forced backend base (set at top of file) and ignore other heuristics
-  // to avoid accidentally falling back to localhost when running on a static host.
-  const forced = cleanApiBase(window.MARGIN_API_BASE);
-  if (forced) return [forced];
-
-  const configured = cleanApiBase(CONFIGURED_API_BASE);
-  if (configured) return [configured];
-
-  // Fallback (dev-only) if nothing is configured
-  return ['http://localhost:3000'];
-}
 async function apiFetch(path, options = {}) {
-  const bases = apiBaseCandidates();
-  if (bases.length === 0) {
-    throw new Error('Set your backend URL first. Define window.MARGIN_API_BASE or deploy the Express server and update DEPLOYED_API_BASE.');
-  }
-
-  let lastError = null;
-  for (const base of bases) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-    try {
-      const accessToken = $('access-token-input')?.value || localStorage.getItem(ACCESS_TOKEN_KEY) || '';
-      const res = await fetch(`${base}${path}`, {
-        ...options,
-        headers: { ...options.headers, 'x-access-token': accessToken },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (res.status !== 404) {
-        localStorage.setItem('margin-api-base', base);
-        return res;
-      }
-      lastError = new Error(`No API route at ${base}`);
-    } catch (error) {
-      clearTimeout(timeoutId);
-      lastError = error;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const externalSignal = options.signal;
+  const abortFromCaller = () => controller.abort(externalSignal.reason);
+  if (externalSignal?.aborted) controller.abort(externalSignal.reason);
+  else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  try {
+    const accessToken = $('access-token-input')?.value || localStorage.getItem(ACCESS_TOKEN_KEY) || '';
+    return await fetch(path, {
+      ...options,
+      headers: { ...options.headers, 'x-access-token': accessToken },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (externalSignal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError');
+    const reason = error?.message || String(error || 'Unknown error');
+    if (controller.signal.aborted) {
+      throw new Error(`Backend timeout calling ${path}. Last error: ${reason}`);
     }
+    throw new Error(`Could not reach backend for ${path}. Last error: ${reason}`);
+  } finally {
+    clearTimeout(timeoutId);
+    externalSignal?.removeEventListener('abort', abortFromCaller);
   }
-
-  const tried = bases.join(', ');
-  const last = lastError?.message || String(lastError || 'Unknown error');
-  if (lastError?.name === 'AbortError') {
-    throw new Error(`Backend timeout calling ${path}. Tried: ${tried}. Last error: ${last}`);
-  }
-  throw new Error(`Could not reach backend for ${path}. Tried: ${tried}. Last error: ${last}`);
 }
 
 function persistAll() {
   idbSet('documents', documents);
-  idbSet('cards', cards);
   idbSet('notes', notes);
   idbSet('quizResults', quizResults);
   idbSet('timerSessions', timerSessions);
@@ -363,6 +862,10 @@ function renderDashboard() {
   $('dashboard-due-count').textContent = String(dueSoon.length);
   $('dashboard-completed-count').textContent = String(assignments.filter(assignment => assignment.completed).length);
   $('dashboard-review-count').textContent = String(reviewCount);
+  $('dashboard-neon-due-count').textContent = String(flashcardDueCount);
+  $('dashboard-neon-due-detail').textContent = flashcardDueCount
+    ? `${flashcardDueCount} ${flashcardDueCount === 1 ? 'card is' : 'cards are'} ready for a spaced review.`
+    : 'No Study Loop cards due right now.';
   $('dashboard-summary').textContent = [
     `${todayClasses.length} ${todayClasses.length === 1 ? 'class' : 'classes'} today`,
     `${dueSoon.length} ${dueSoon.length === 1 ? 'deadline' : 'deadlines'} in the next 7 days`
@@ -421,9 +924,9 @@ function renderDashboard() {
     continueButton.textContent = 'Continue reading';
     continueButton.dataset.documentId = latestDocument.id;
     continueButton.dataset.go = '';
-  } else if (reviewCount) {
+  } else if (flashcardDueCount) {
     $('dashboard-continue-title').textContent = 'Keep your knowledge fresh';
-    $('dashboard-continue-detail').textContent = `${reviewCount} ${reviewCount === 1 ? 'flashcard' : 'flashcards'} ready to review.`;
+    $('dashboard-continue-detail').textContent = `${flashcardDueCount} ${flashcardDueCount === 1 ? 'flashcard' : 'flashcards'} ready to review.`;
     continueButton.textContent = 'Review flashcards';
     continueButton.dataset.documentId = '';
     continueButton.dataset.go = 'cards';
@@ -474,7 +977,10 @@ function activatePage(page) {
   $('topbar-page-title').textContent = PAGE_TITLES[page];
   $('page-layout').classList.toggle('tutor-active', page === 'tutor');
   if (page === 'dashboard') renderDashboard();
-  if (page === 'progress') renderProgress();
+  if (page === 'progress') {
+    renderProgress();
+    loadProgressDeckStats();
+  }
   if (page === 'tutor') renderTutorOverview();
   if (page === 'calendar') renderCalendar();
   if (page === 'classes') renderClasses();
@@ -496,10 +1002,12 @@ $('settings-tutor-material').checked = $('tutor-use-material').checked;
 $('tutor-use-material').addEventListener('change', event => {
   localStorage.setItem(TUTOR_MATERIAL_KEY, String(event.target.checked));
   $('settings-tutor-material').checked = event.target.checked;
+  renderTutorChatPage();
 });
 $('settings-tutor-material').addEventListener('change', event => {
   localStorage.setItem(TUTOR_MATERIAL_KEY, String(event.target.checked));
   $('tutor-use-material').checked = event.target.checked;
+  renderTutorChatPage();
 });
 
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
@@ -552,6 +1060,10 @@ document.addEventListener('keydown', event => {
 document.querySelectorAll('[data-go]').forEach(button => button.addEventListener('click', () => {
   document.querySelector(`.tab[data-tab="${button.dataset.go}"]`)?.click();
 }));
+document.querySelectorAll('[data-go-flashcards]').forEach(button => button.addEventListener('click', () => {
+  activatePage('cards');
+  setFlashcardsView(button.dataset.goFlashcards);
+}));
 $('theme-select').value = document.documentElement.dataset.theme || localStorage.getItem(THEME_KEY) || 'system';
 setTheme($('theme-select').value);
 $('theme-select').addEventListener('change', event => setTheme(event.target.value));
@@ -562,10 +1074,13 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 updatePageDate();
 activatePage('dashboard');
 
-document.querySelectorAll('.quick-prompt').forEach(button => button.addEventListener('click', () => {
-  $('chat-input').value = button.dataset.prompt;
+document.addEventListener('click', event => {
+  const prompt = event.target instanceof Element ? event.target.closest('.quick-prompt') : null;
+  if (!prompt) return;
+  $('chat-input').value = prompt.dataset.prompt;
+  $('chat-input').dispatchEvent(new Event('input', { bubbles: true }));
   $('chat-input').focus();
-}));
+});
 
 function dateTimeInputValue(timestamp) {
   if (!Number.isFinite(timestamp)) return '';
@@ -627,6 +1142,17 @@ function assignmentMarkup(assignment) {
   `;
 }
 
+function cardFontSize(text) {
+  return `${Math.max(12, Math.min(20, 20 - Math.floor(String(text || '').length / 90)))}px`;
+}
+
+function renderInlineMarkdown(text) {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+}
+
 function bindAssignmentActions(container) {
   container.querySelectorAll('[data-toggle-assignment]').forEach(button => button.addEventListener('click', () => {
     const assignment = assignments.find(item => item.id === button.dataset.toggleAssignment);
@@ -637,12 +1163,15 @@ function bindAssignmentActions(container) {
     renderEverything();
   }));
   container.querySelectorAll('[data-edit-assignment]').forEach(button => button.addEventListener('click', () => openAssignmentForm(button.dataset.editAssignment)));
-  container.querySelectorAll('[data-delete-assignment]').forEach(button => button.addEventListener('click', () => {
+  container.querySelectorAll('[data-delete-assignment]').forEach(button => button.addEventListener('click', async () => {
     const assignment = assignments.find(item => item.id === button.dataset.deleteAssignment);
-    if (!assignment || !confirm(`Delete "${assignment.title}"?`)) return;
-    assignments = assignments.filter(item => item.id !== assignment.id);
-    idbSet('assignments', assignments);
-    renderEverything();
+    if (!assignment) return;
+    const confirmed = await confirmDeletion({
+      title: 'Delete assignment?',
+      description: `Delete "${assignment.title}"?`,
+      affected: 'The assignment will be removed from its class and calendar views.'
+    });
+    if (confirmed) await softDeleteRecords([{ collection: 'assignments', ids: [assignment.id] }], 'Assignment deleted.');
   }));
 }
 
@@ -699,21 +1228,30 @@ function renderClasses() {
     }).join('');
     list.querySelectorAll('[data-edit-class]').forEach(button => button.addEventListener('click', () => openClassForm(button.dataset.editClass)));
     list.querySelectorAll('[data-add-class-assignment]').forEach(button => button.addEventListener('click', () => openAssignmentForm(null, button.dataset.addClassAssignment)));
-    list.querySelectorAll('[data-delete-class]').forEach(button => button.addEventListener('click', () => {
+    list.querySelectorAll('[data-delete-class]').forEach(button => button.addEventListener('click', async () => {
       const item = classes.find(course => course.id === button.dataset.deleteClass);
       if (!item) return;
-      const linked = assignments.filter(assignment => assignment.classId === item.id).length;
-      const message = linked
-        ? `Delete "${item.name}"? Its ${linked} ${linked === 1 ? 'assignment will' : 'assignments will'} stay in your list without a class.`
-        : `Delete "${item.name}"?`;
-      if (!confirm(message)) return;
-      classes = classes.filter(course => course.id !== item.id);
-      assignments.forEach(assignment => {
-        if (assignment.classId === item.id) assignment.classId = '';
+      const linked = assignments.filter(assignment => assignment.classId === item.id);
+      const choice = await confirmDeletion({
+        title: `Delete class "${item.name}"?`,
+        description: linked.length
+          ? `This class has ${linked.length} linked ${linked.length === 1 ? 'assignment' : 'assignments'}.`
+          : 'This class has no linked assignments.',
+        affected: linked.length ? 'Choose whether its assignments should remain in your list without a class or be deleted too.' : '',
+        choices: linked.length
+          ? [
+            { key: 'keep', label: 'Delete class only' },
+            { key: 'all', label: `Delete class and ${linked.length} assignments` }
+          ]
+          : [{ key: 'all', label: 'Delete class' }]
       });
-      idbSet('classes', classes);
-      idbSet('assignments', assignments);
-      renderEverything();
+      if (!choice) return;
+      const updates = choice === 'keep'
+        ? [{ collection: 'assignments', records: assignments.map(assignment => assignment.classId === item.id ? { ...assignment, classId: '' } : assignment) }]
+        : [];
+      const changes = [{ collection: 'classes', ids: [item.id] }];
+      if (choice === 'all' && linked.length) changes.push({ collection: 'assignments', ids: linked.map(assignment => assignment.id) });
+      await softDeleteRecords(changes, 'Class deleted.', updates);
     }));
   }
   paginateToFit(list, { label: 'Class pages', itemHeight: 116 });
@@ -1147,12 +1685,26 @@ function renderDocuments() {
   }
   list.querySelectorAll('[data-preview-doc]').forEach(btn => btn.addEventListener('click', () => previewDocument(btn.dataset.previewDoc)));
   list.querySelectorAll('[data-open-raw]').forEach(btn => btn.addEventListener('click', () => openRawDocument(btn.dataset.openRaw)));
-  list.querySelectorAll('[data-delete-doc]').forEach(btn => btn.addEventListener('click', () => {
-    if (!confirm('Delete this document from this browser?')) return;
-    documents = documents.filter(doc => doc.id !== btn.dataset.deleteDoc);
-    if (currentPreviewDocId === btn.dataset.deleteDoc) currentPreviewDocId = null;
-    idbSet('documents', documents);
-    renderEverything();
+  list.querySelectorAll('[data-delete-doc]').forEach(btn => btn.addEventListener('click', async () => {
+    const doc = documents.find(item => item.id === btn.dataset.deleteDoc);
+    if (!doc) return;
+    const linked = cards.filter(card => card.sourceDocumentId === doc.id);
+    const choice = await confirmDeletion({
+      title: `Delete document "${doc.title}"?`,
+      description: 'The extracted text and reading progress for this document will be removed.',
+      affected: linked.length ? `${linked.length} flashcard${linked.length === 1 ? '' : 's'} reference this document. Choose whether to keep or delete them.` : '',
+      choices: linked.length
+        ? [
+          { key: 'document', label: 'Delete document only' },
+          { key: 'all', label: `Delete document and ${linked.length} cards` }
+        ]
+        : [{ key: 'document', label: 'Delete document' }]
+    });
+    if (!choice) return;
+    if (currentPreviewDocId === doc.id) currentPreviewDocId = null;
+    const changes = [{ collection: 'documents', ids: [doc.id] }];
+    if (choice === 'all') changes.push({ collection: 'cards', ids: linked.map(card => card.id) });
+    await softDeleteRecords(changes, 'Document deleted.');
   }));
   paginateToFit(list, { label: 'Document pages', itemHeight: 118 });
   renderDocumentSelects();
@@ -1292,7 +1844,7 @@ function renderTutorScopeOptions() {
   const select = $('tutor-study-scope');
   if (!select) return;
   const current = select.value || 'all';
-  const options = ['<option value="all">All study material</option>'];
+  const options = ['<option value="all">All material</option>'];
   const courses = [...new Set([
     ...documents.map(item => item.course),
     ...notes.map(item => item.tag),
@@ -1303,6 +1855,7 @@ function renderTutorScopeOptions() {
   documents.forEach(item => options.push(`<option value="document:${escapeHtml(item.id)}">Document: ${escapeHtml(item.title)}</option>`));
   select.innerHTML = options.join('');
   select.value = [...select.options].some(option => option.value === current) ? current : 'all';
+  document.querySelectorAll('select').forEach(syncCustomSelect);
 }
 
 function splitStudyText(text, chunkSize = 650) {
@@ -1452,7 +2005,7 @@ function retrieveStudyReferences(question) {
   return references;
 }
 
-function addMsg(role, text, container = $('chat-log')) {
+function addMsg(role, text, container = $('chat-log'), messageData = {}) {
   const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
   const div = document.createElement('div');
@@ -1462,35 +2015,33 @@ function addMsg(role, text, container = $('chat-log')) {
     content.className = 'user-content';
     content.textContent = text;
     div.appendChild(content);
-    if (text.length > 360) {
-      const showMore = document.createElement('button');
-      showMore.type = 'button';
-      showMore.className = 'text-btn reply-show-more';
-      showMore.textContent = 'Show full question';
-      showMore.addEventListener('click', () => openReplyDialog(text));
-      div.appendChild(showMore);
-    }
   } else {
-    div.textContent = text;
+    const avatar = document.createElement('span');
+    avatar.className = 'msg-avatar tutor-avatar';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.textContent = 'S';
+    div.appendChild(avatar);
+    if (text) {
+      const content = document.createElement('div');
+      content.className = 'assistant-content';
+      content.innerHTML = renderTutorMarkdown(text);
+      div.appendChild(content);
+      bindMarkdownCodeButtons(content);
+      renderMathInElementSafe(content);
+    }
   }
+  const timestamp = document.createElement('time');
+  timestamp.className = 'msg-time';
+  const sentAt = Number(messageData.timestamp) || Date.now();
+  timestamp.dateTime = new Date(sentAt).toISOString();
+  timestamp.textContent = new Date(sentAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  div.appendChild(timestamp);
   container.appendChild(div);
   return div;
 }
 
-function addAssistantMsg(text, sources = [], container = $('chat-log')) {
-  const message = addMsg('assistant', '', container);
-  const content = document.createElement('div');
-  content.className = 'assistant-content';
-  content.textContent = text;
-  message.appendChild(content);
-  if (text.length > 360) {
-    const showMore = document.createElement('button');
-    showMore.type = 'button';
-    showMore.className = 'text-btn reply-show-more';
-    showMore.textContent = 'Show more';
-    showMore.addEventListener('click', () => openReplyDialog(text));
-    message.appendChild(showMore);
-  }
+function addAssistantMsg(text, sources = [], container = $('chat-log'), messageData = {}) {
+  const message = addMsg('assistant', text, container, messageData);
   if (sources.length) {
     const details = document.createElement('details');
     details.className = 'message-sources';
@@ -1502,64 +2053,319 @@ function addAssistantMsg(text, sources = [], container = $('chat-log')) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'source-open';
-      button.dataset.sourceType = source.type;
+      button.dataset.sourceType = source.type === 'doc' ? 'document' : source.type;
       button.dataset.sourceId = source.sourceId || '';
-      button.textContent = `[${source.type === 'document' ? 'Doc' : source.type.charAt(0).toUpperCase() + source.type.slice(1)}: ${source.title}]`;
+      const label = source.type === 'document' || source.type === 'doc' ? 'Doc'
+        : source.type === 'card' ? 'Card'
+          : source.type.charAt(0).toUpperCase() + source.type.slice(1);
+      button.textContent = source.title ? `[${label}: ${source.title}]` : `[${label}]`;
       item.appendChild(button);
       list.appendChild(item);
     });
     details.append(summary, list);
     message.appendChild(details);
   }
+  if (messageData.retry) {
+    const retryRow = document.createElement('div');
+    retryRow.className = 'tutor-error-actions';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn btn-secondary btn-sm';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', () => sendChat(messageData.retry, messageData.timestamp));
+    retryRow.append(retry);
+    if (messageData.requiresToken) {
+      const addToken = document.createElement('button');
+      addToken.type = 'button';
+      addToken.className = 'text-btn';
+      addToken.textContent = 'Add token in Settings';
+      addToken.addEventListener('click', openTutorTokenSettings);
+      retryRow.append(addToken);
+    }
+    message.append(retryRow);
+    return message;
+  }
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+  [
+    ['Copy reply', '⧉', async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        setChatRequestStatus('Reply copied.');
+      } catch {
+        setChatRequestStatus('Clipboard access is unavailable in this browser.');
+      }
+    }],
+    ['Save to notes', '＋', async () => {
+      const now = Date.now();
+      notes.push({
+        id: uid(),
+        title: (messageData.question || 'Tutor reply').slice(0, 60),
+        tag: '',
+        unit: '',
+        tags: ['Tutor'],
+        body: cleanNoteBody(text),
+        aiGenerated: false,
+        createdAt: now,
+        updatedAt: now
+      });
+      selectedNoteId = notes.at(-1).id;
+      await idbSet('notes', notes);
+      renderEverything();
+      setChatRequestStatus('Saved to notes.');
+    }],
+    ['Make flashcard', '▤', async () => {
+      await saveFlashcardRecord({
+        front: messageData.question || 'What is the key idea?',
+        back: text,
+        subject: 'General',
+        unit: '',
+        format: 'basic',
+        aiGenerated: false,
+      });
+      await refreshFlashcardData();
+      setChatRequestStatus('Flashcard added.');
+    }],
+    ['Explain simpler', '↓', () => sendChat(`Explain this more simply, in a few clear sentences:\n\n${text}`)],
+    ['Regenerate reply', '↻', () => sendChat(messageData.question || 'Please repeat your last answer.')],
+    ['Helpful', '👍', async () => {
+      const saved = chatHistory.find(item => item.timestamp === messageData.timestamp);
+      if (saved) saved.feedback = saved.feedback === 'up' ? '' : 'up';
+      await persistTutorConversations();
+      renderTutorChatPage();
+    }],
+    ['Not helpful', '👎', async () => {
+      const saved = chatHistory.find(item => item.timestamp === messageData.timestamp);
+      if (saved) saved.feedback = saved.feedback === 'down' ? '' : 'down';
+      await persistTutorConversations();
+      renderTutorChatPage();
+    }]
+  ].forEach(([label, icon, callback]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'icon-btn tutor-action-btn';
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.textContent = icon;
+    if ((label === 'Helpful' && messageData.feedback === 'up')
+      || (label === 'Not helpful' && messageData.feedback === 'down')) {
+      button.setAttribute('aria-pressed', 'true');
+    } else if (label === 'Helpful' || label === 'Not helpful') {
+      button.setAttribute('aria-pressed', 'false');
+    }
+    button.addEventListener('click', callback);
+    actions.appendChild(button);
+  });
+  message.appendChild(actions);
+
+  if (messageData.isLatest) {
+    const followups = document.createElement('div');
+    followups.className = 'chat-followups';
+    ['Give me an example', 'Quiz me on this', 'Explain the key idea'].forEach(prompt => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'text-btn';
+      button.textContent = prompt;
+      button.addEventListener('click', () => sendChat(`${prompt}: ${messageData.question || text}`));
+      followups.appendChild(button);
+    });
+    message.appendChild(followups);
+  }
   return message;
 }
 
 function renderTutorChatPage() {
   const log = $('chat-log');
+  const previousScrollTop = log.scrollTop;
   log.replaceChildren();
-  const exchanges = Math.max(1, Math.ceil(chatHistory.length / 2));
-  chatPageIndex = Math.max(0, Math.min(chatPageIndex, exchanges - 1));
-  const pairStart = chatPageIndex * 2;
-  const messages = chatHistory.slice(pairStart, pairStart + 2);
-  messages.forEach(message => {
-    if (message.role === 'assistant') addAssistantMsg(message.content, message.sources || []);
-    else addMsg('user', message.content);
+  const latestAssistantIndex = chatHistory.reduce((latest, message, index) =>
+    message.role === 'assistant' && !message.retry ? index : latest, -1);
+  chatHistory.forEach((message, index) => {
+    if (message.role === 'assistant') {
+      addAssistantMsg(message.content, message.sources || [], log, {
+        ...message,
+        isLatest: index === latestAssistantIndex
+      });
+    } else {
+      addMsg('user', message.content, log, message);
+    }
   });
-  if (!messages.length) {
+  if (!chatHistory.length) {
     const empty = document.createElement('div');
     empty.className = 'chat-empty';
     empty.id = 'chat-empty';
-    empty.textContent = 'Ask about a concept, a past-paper question, or get a worked example.';
+    empty.innerHTML = `<h2>What would you like to work on?</h2>
+      <p>Ask a question, explore your study material, or plan your next study session.</p>
+      <div class="chat-suggestions">
+        <button type="button" class="quick-prompt" data-prompt="Explain a concept from my document simply.">Explain a concept from my document simply</button>
+        <button type="button" class="quick-prompt" data-prompt="Quiz me on my latest notes.">Quiz me on my latest notes</button>
+        <button type="button" class="quick-prompt" data-prompt="Help me plan this week's study.">Help me plan this week's study</button>
+        <button type="button" class="quick-prompt" data-prompt="Summarise my document in 5 points.">Summarise my document in 5 points</button>
+      </div>
+      <p class="chat-material-note"></p>`;
     log.appendChild(empty);
   }
-  if (chatPending && messages.at(-1)?.role === 'user') addMsg('assistant loading', 'Thinking...');
-  const controls = $('chat-page-controls');
-  controls.innerHTML = `<button type="button" class="btn btn-sm" data-chat-prev ${chatPageIndex === 0 ? 'disabled' : ''}>Previous exchange</button><span aria-live="polite">Exchange ${exchanges ? chatPageIndex + 1 : 0} of ${exchanges}</span><button type="button" class="btn btn-sm" data-chat-next ${chatPageIndex >= exchanges - 1 ? 'disabled' : ''}>Next exchange</button>`;
-  controls.querySelector('[data-chat-prev]').addEventListener('click', () => { chatPageIndex--; renderTutorChatPage(); });
-  controls.querySelector('[data-chat-next]').addEventListener('click', () => { chatPageIndex++; renderTutorChatPage(); });
+  if (chatPending && chatHistory.at(-1)?.role === 'user') {
+    const loading = addMsg('assistant', chatStreamingReply, log);
+    if (!chatStreamingReply) loading.classList.add('loading');
+    if (!chatStreamingReply) {
+      const indicator = document.createElement('div');
+      indicator.className = 'assistant-content loading-content';
+      indicator.innerHTML = '<span class="typing-indicator" aria-label="Tutor is thinking"><i></i><i></i><i></i></span>';
+      loading.insertBefore(indicator, loading.querySelector('.msg-time'));
+    }
+    if (chatWakeMessage) {
+      const wakeMessage = document.createElement('span');
+      wakeMessage.className = 'chat-wake-message';
+      wakeMessage.textContent = chatWakeMessage;
+      const content = loading.querySelector('.assistant-content');
+      if (content) content.appendChild(wakeMessage);
+      else loading.insertBefore(wakeMessage, loading.querySelector('.msg-time'));
+    }
+  }
+  const title = tutorConversations.find(item => item.id === activeConversationId)?.title || 'New chat';
+  $('tutor-conversation-title').value = title;
+  const note = $('chat-log').querySelector('.chat-material-note');
+  if (note) note.textContent = $('tutor-use-material').checked
+    ? 'Study material is on. Relevant excerpts may be sent with your question.'
+    : 'Study material is off. Your questions are sent without local excerpts.';
+  $('tutor-token-prompt').classList.toggle('hidden', Boolean(
+    $('access-token-input')?.value.trim() || localStorage.getItem(ACCESS_TOKEN_KEY)
+  ));
+  updateTutorConnectionStatus();
+  $('chat-jump-latest').classList.toggle('hidden', chatAtLatest || chatHistory.length === 0);
+  requestAnimationFrame(() => {
+    if (chatAtLatest) log.scrollTop = log.scrollHeight;
+    else log.scrollTop = previousScrollTop;
+  });
 }
 
 function renderTutorHistory() {
   const content = $('tutor-history-content');
-  const pageSize = 2;
-  const pageCount = Math.max(1, Math.ceil(chatHistory.length / (pageSize * 2)));
+  const query = $('tutor-history-search').value.trim().toLocaleLowerCase();
+  const filtered = tutorConversations.filter(conversation =>
+    `${conversation.title || ''} ${conversation.messages.map(message => message.content || '').join(' ')}`
+      .toLocaleLowerCase().includes(query));
+  const pageSize = 6;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   historyPageIndex = Math.max(0, Math.min(historyPageIndex, pageCount - 1));
-  const firstPair = historyPageIndex * pageSize;
-  const pageMessages = chatHistory.slice(firstPair * 2, (firstPair + pageSize) * 2);
   content.replaceChildren();
-  pageMessages.forEach(message => {
-    const item = message.role === 'assistant'
-      ? addAssistantMsg(message.content, message.sources || [], content)
-      : addMsg('user', message.content, content);
-    item.classList.add('history-message');
+  const pageConversations = filtered
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(historyPageIndex * pageSize, (historyPageIndex + 1) * pageSize);
+  pageConversations.forEach(conversation => {
+    const item = document.createElement('article');
+    item.className = 'conversation-item';
+    const title = document.createElement('strong');
+    title.textContent = conversation.title || 'New chat';
+    const count = document.createElement('span');
+    count.textContent = `${conversation.messages.length} messages`;
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'btn btn-sm';
+    open.dataset.openConversation = conversation.id;
+    open.textContent = 'Open';
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'btn btn-sm';
+    rename.dataset.renameConversation = conversation.id;
+    rename.textContent = 'Rename';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-sm btn-danger';
+    remove.dataset.deleteConversation = conversation.id;
+    remove.textContent = 'Delete';
+    item.append(title, count, open, rename, remove);
+    content.append(item);
   });
   const controls = $('tutor-history-controls');
   controls.innerHTML = `<button type="button" class="btn btn-sm" data-history-prev ${historyPageIndex === 0 ? 'disabled' : ''}>Previous</button><span aria-live="polite">Page ${historyPageIndex + 1} of ${pageCount}</span><button type="button" class="btn btn-sm" data-history-next ${historyPageIndex >= pageCount - 1 ? 'disabled' : ''}>Next</button>`;
   controls.querySelector('[data-history-prev]').addEventListener('click', () => { historyPageIndex--; renderTutorHistory(); });
   controls.querySelector('[data-history-next]').addEventListener('click', () => { historyPageIndex++; renderTutorHistory(); });
-  if (!chatHistory.length) {
-    content.innerHTML = '<p class="hint">No conversation history yet.</p>';
+  if (!filtered.length) {
+    content.innerHTML = `<p class="hint">${tutorConversations.length ? 'No conversations match your search.' : 'No conversations yet. Start a new chat to begin.'}</p>`;
+    controls.classList.add('hidden');
+  } else {
+    controls.classList.remove('hidden');
   }
+}
+
+function createTutorConversation() {
+  const conversation = { id: uid(), title: 'New chat', messages: [], createdAt: Date.now(), updatedAt: Date.now() };
+  tutorConversations.push(conversation);
+  activeConversationId = conversation.id;
+  chatHistory = conversation.messages;
+  localStorage.setItem('studybuddy-active-conversation', activeConversationId);
+  persistTutorConversations();
+  chatAtLatest = true;
+  renderTutorChatPage();
+  renderTutorOverview();
+}
+
+function renameTutorConversation(conversation) {
+  if (!conversation) return;
+  const title = prompt('Rename conversation', conversation.title || 'New chat');
+  if (!title?.trim()) return;
+  conversation.title = title.trim().slice(0, 80);
+  persistTutorConversations().then(() => {
+    $('tutor-conversation-title').value = conversation.title;
+    renderTutorHistory();
+  });
+}
+
+function exportTutorConversation() {
+  const conversation = tutorConversations.find(item => item.id === activeConversationId);
+  if (!conversation) return;
+  const lines = [`# ${conversation.title || 'Tutor conversation'}`, ''];
+  conversation.messages.forEach(message => {
+    lines.push(message.role === 'user' ? '## You' : '## Tutor', '', normalizeTutorReply(message.content), '');
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${(conversation.title || 'tutor-chat').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').slice(0, 80)}.md`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function setTutorOverviewOpen(open) {
+  if (window.matchMedia('(min-width: 769px)').matches) return;
+  const aside = $('tutor-aside');
+  aside.classList.toggle('open', open);
+  $('tutor-aside-backdrop').classList.toggle('hidden', !open);
+  $('tutor-overview-open').setAttribute('aria-expanded', String(open));
+  if (open) {
+    aside.setAttribute('role', 'dialog');
+    aside.setAttribute('aria-modal', 'true');
+    $('tutor-aside-close').focus();
+  } else {
+    aside.removeAttribute('role');
+    aside.removeAttribute('aria-modal');
+    $('tutor-overview-open').focus();
+  }
+}
+window.addEventListener('resize', () => {
+  if (window.innerWidth <= 768 || !$('tutor-aside').classList.contains('open')) return;
+  $('tutor-aside').classList.remove('open');
+  $('tutor-aside').removeAttribute('role');
+  $('tutor-aside').removeAttribute('aria-modal');
+  $('tutor-aside-backdrop').classList.add('hidden');
+  $('tutor-overview-open').setAttribute('aria-expanded', 'false');
+});
+
+async function persistTutorConversations() {
+  const active = tutorConversations.find(item => item.id === activeConversationId);
+  if (active) {
+    active.messages = chatHistory;
+    active.updatedAt = Date.now();
+    const firstQuestion = chatHistory.find(message => message.role === 'user')?.content;
+    if (active.title === 'New chat' && firstQuestion) {
+      active.title = firstQuestion.trim().replace(/\s+/g, ' ').slice(0, 48) || 'New chat';
+    }
+  }
+  await idbSet('tutorConversations', tutorConversations);
 }
 
 let replyPages = [];
@@ -1623,62 +2429,221 @@ document.querySelector('#tutor-history-dialog').addEventListener('click', event 
   if (source) openStudySource(source.dataset.sourceType, source.dataset.sourceId);
 });
 
-async function sendChat() {
-  const q = $('chat-input').value.trim();
+function setChatRequestStatus(message = '') {
+  $('chat-request-message').textContent = message;
+}
+
+async function readTutorStream(response, onUpdate) {
+  let reply = '';
+  let sources = [];
+  let finished = false;
+  const dispatch = block => {
+    const data = block.split(/\r?\n/)
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trim())
+      .join('\n');
+    if (!data || data === '[DONE]') return;
+    let event;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw new Error('The tutor returned an invalid streaming response.');
+    }
+    if (event.error) {
+      const error = new Error(event.error);
+      error.status = Number(event.status) || 502;
+      throw error;
+    }
+    if (typeof event.token === 'string') {
+      reply += event.token;
+      onUpdate(reply);
+    }
+    if (typeof event.reply === 'string') reply = event.reply;
+    if (Array.isArray(event.sources)) sources = event.sources;
+    if (event.done === true) finished = true;
+  };
+
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    text.split(/\r?\n\r?\n/).forEach(dispatch);
+  } else {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        pending += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const blocks = pending.split(/\r?\n\r?\n/);
+        pending = blocks.pop() || '';
+        blocks.forEach(dispatch);
+        if (done) break;
+      }
+      if (pending.trim()) dispatch(pending);
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  if (!reply.trim()) throw new Error('The tutor did not return a response. Please try again.');
+  if (!finished) throw new Error('The tutor response was interrupted. Please try again.');
+  return { reply, sources };
+}
+
+async function sendChat(retryQuestion = '', retryTimestamp = 0) {
+  const q = (retryQuestion || $('chat-input').value).trim();
   if (!q || chatPending) return;
+  if (!$('access-token-input').value.trim() && !localStorage.getItem(ACCESS_TOKEN_KEY)) {
+    $('tutor-token-prompt').classList.remove('hidden');
+    updateTutorConnectionStatus('missing');
+    setChatRequestStatus('Add your AI access token in Settings before sending a question.');
+    return;
+  }
+  if (retryTimestamp) {
+    const failedIndex = chatHistory.findIndex(message => message.timestamp === retryTimestamp && message.retry);
+    if (failedIndex >= 0) {
+      const start = chatHistory[failedIndex - 1]?.role === 'user' ? failedIndex - 1 : failedIndex;
+      chatHistory.splice(start);
+      await persistTutorConversations();
+    }
+  }
+  if (!tutorConversations.some(item => item.id === activeConversationId)) createTutorConversation();
   chatPending = true;
+  lastTutorQuestion = q;
+  chatWakeMessage = '';
+  chatStreamingReply = '';
+  chatAbortController = new AbortController();
   $('chat-input').value = '';
+  $('chat-input').style.height = 'auto';
   $('chat-send').disabled = true;
-  chatHistory.push({ role: 'user', content: q });
-  chatPageIndex = Math.ceil(chatHistory.length / 2) - 1;
+  $('chat-send').classList.add('hidden');
+  $('chat-stop-btn').classList.remove('hidden');
+  setChatRequestStatus('');
+  clearTimeout(chatWakeTimer);
+  chatWakeTimer = setTimeout(() => {
+    if (chatPending) {
+      chatWakeMessage = 'Waking up the server, this can take up to a minute...';
+      renderTutorChatPage();
+    }
+  }, 5000);
+  chatHistory.push({ role: 'user', content: q, timestamp: Date.now() });
+  chatAtLatest = true;
+  await persistTutorConversations();
   renderTutorChatPage();
   renderTutorOverview();
+  $('chat-input').focus();
   try {
     const references = $('tutor-use-material').checked ? retrieveStudyReferences(q) : [];
     const res = await apiFetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: q, history: chatHistory.slice(0, -1), references })
+      body: JSON.stringify({ input: q, history: chatHistory.slice(0, -1), references, stream: true }),
+      signal: chatAbortController.signal
     });
-    if (!res.ok) throw new Error(await apiErrorMessage(res, 'The AI request failed'));
+    if (!res.ok) {
+      const error = new Error(await apiErrorMessage(res, 'The AI request failed'));
+      error.status = res.status;
+      throw error;
+    }
     let data;
-    try {
-      data = await res.json();
-    } catch {
-      throw new Error('The server returned an invalid response. Please try again.');
+    if (res.headers.get('content-type')?.includes('text/event-stream')) {
+      data = await readTutorStream(res, partial => {
+        chatStreamingReply = partial;
+        renderTutorChatPage();
+      });
+    } else {
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error('The server returned an invalid response. Please try again.');
+      }
     }
     if (data?.error) throw new Error(data.error);
     if (typeof data?.reply !== 'string' || !data.reply.trim()) {
       throw new Error('The AI did not return a response. Please try again.');
     }
-    const textBlock = data.reply;
-    chatHistory.push({ role: 'assistant', content: textBlock, sources: Array.isArray(data.sources) ? data.sources : [] });
+    const textBlock = normalizeTutorReply(data.reply);
+    chatHistory.push({
+      role: 'assistant',
+      content: textBlock,
+      sources: Array.isArray(data.sources) ? data.sources : [],
+      question: q,
+      timestamp: Date.now()
+    });
     if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
-    chatPageIndex = Math.ceil(chatHistory.length / 2) - 1;
+    await persistTutorConversations();
+    updateTutorConnectionStatus('connected');
     renderTutorChatPage();
     renderTutorOverview();
   } catch (err) {
-    chatHistory.push({ role: 'assistant', content: err.message || 'Could not reach the tutor. Check the backend server and try again.' });
-    chatPageIndex = Math.ceil(chatHistory.length / 2) - 1;
-    renderTutorChatPage();
+    const stopped = chatAbortController?.signal.aborted;
+    if (stopped) {
+      if (chatStreamingReply.trim()) {
+        chatHistory.push({
+          role: 'assistant',
+          content: chatStreamingReply,
+          question: q,
+          timestamp: Date.now()
+        });
+        await persistTutorConversations();
+      }
+      chatStreamingReply = '';
+      chatPending = false;
+      setChatRequestStatus('Request stopped.');
+      renderTutorChatPage();
+      renderTutorOverview();
+    } else {
+      const status = Number(err.status) || 0;
+      const requiresToken = status === 401 || status === 403;
+      const message = requiresToken
+        ? 'Your access token was rejected. Check it in Settings.'
+        : status === 429
+          ? 'Too many requests, wait a moment.'
+          : status >= 500 || !status
+            ? 'The tutor server is unavailable.'
+            : err.message || 'The tutor could not answer. Please try again.';
+      if (requiresToken) updateTutorConnectionStatus('missing');
+      chatHistory.push({
+        role: 'assistant',
+        content: message,
+        retry: q,
+        question: q,
+        requiresToken,
+        timestamp: Date.now()
+      });
+      await persistTutorConversations();
+      renderTutorChatPage();
+      setChatRequestStatus(message);
+    }
   } finally {
+    clearTimeout(chatWakeTimer);
+    chatWakeMessage = '';
+    chatStreamingReply = '';
     chatPending = false;
-    $('chat-send').disabled = false;
+    chatAbortController = null;
+    $('chat-send').classList.remove('hidden');
+    $('chat-stop-btn').classList.add('hidden');
+    $('chat-send').disabled = !$('chat-input').value.trim();
+    $('chat-input').focus();
   }
 }
 
-$('clear-chat-btn').addEventListener('click', () => {
-  chatHistory = [];
-  chatPageIndex = 0;
-  renderTutorChatPage();
-  renderTutorOverview();
-});
+$('chat-stop-btn').addEventListener('click', () => chatAbortController?.abort());
 
 function cardLabel(card) {
   if (card.format === 'definition') return 'Definition';
   if (card.format === 'fill_blank') return 'Fill blank';
   return 'Basic';
 }
+
+function updateFlashcardDueBadge(count = flashcardDueCount) {
+  flashcardDueCount = Math.max(0, Number(count) || 0);
+  const badge = $('flashcards-due-badge');
+  badge.textContent = flashcardDueCount > 99 ? '99+' : String(flashcardDueCount);
+  badge.classList.toggle('hidden', flashcardDueCount === 0);
+  badge.setAttribute('aria-label', `${flashcardDueCount} flashcards due`);
+  renderDashboard();
+}
+
 function renderDeckBar() {
   const select = $('card-course-filter');
   if (!select) return;
@@ -1686,13 +2651,71 @@ function renderDeckBar() {
   const previous = select.value || 'all';
   select.innerHTML = `<option value="all">All courses</option>${courses.map(course => `<option value="${escapeHtml(course)}">${escapeHtml(course)}</option>`).join('')}`;
   select.value = courses.includes(previous) ? previous : 'all';
+  syncCustomSelect(select);
+  renderFlashcardDeckSummary();
+  renderFlashcardDeckSelectors();
 }
+
+function renderFlashcardDeckSummary() {
+  const container = $('flashcard-deck-summary');
+  if (!container) return;
+  if (currentFlashcardDeckFilter !== 'all'
+    && !decks.some(deck => deck.id === currentFlashcardDeckFilter)) {
+    currentFlashcardDeckFilter = 'all';
+  }
+  container.replaceChildren();
+  const all = document.createElement('button');
+  all.type = 'button';
+  all.className = `flashcard-deck-pill${currentFlashcardDeckFilter === 'all' ? ' active' : ''}`;
+  all.dataset.deckFilter = 'all';
+  all.innerHTML = `<span>All decks</span><small>${cards.length}</small>`;
+  container.appendChild(all);
+  decks.forEach(deck => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = `flashcard-deck-pill${currentFlashcardDeckFilter === deck.id ? ' active' : ''}`;
+    item.dataset.deckFilter = deck.id;
+    item.innerHTML = `<span>${escapeHtml(deck.name)}</span><small>${Number(deck.due_count) || 0} due</small>`;
+    container.appendChild(item);
+  });
+  container.querySelectorAll('[data-deck-filter]').forEach(button => button.addEventListener('click', () => {
+    currentFlashcardDeckFilter = button.dataset.deckFilter;
+    $('card-course-filter').value = 'all';
+    $('card-unit-filter').value = 'all';
+    syncCustomSelect($('card-course-filter'));
+    syncCustomSelect($('card-unit-filter'));
+    renderFlashcardDeckSummary();
+    renderCardList();
+  }));
+}
+
+function renderFlashcardDeckSelectors() {
+  const selectedGenerateDeck = $('learning-topic')?.value || '';
+  const selectedReviewDeck = $('learning-review-deck')?.value || 'all';
+  if ($('learning-topic')) {
+    $('learning-topic').innerHTML = `${decks.map(deck => `<option value="${escapeHtml(deck.id)}">${escapeHtml(deck.name)}</option>`).join('')}<option value="new">New deck…</option>`;
+    $('learning-topic').value = decks.some(deck => deck.id === selectedGenerateDeck)
+      ? selectedGenerateDeck
+      : decks[0]?.id || 'new';
+    syncCustomSelect($('learning-topic'));
+  }
+  if ($('learning-review-deck')) {
+    $('learning-review-deck').innerHTML = `<option value="all">All decks</option>${decks.map(deck => `<option value="${escapeHtml(deck.id)}">${escapeHtml(deck.name)}</option>`).join('')}`;
+    $('learning-review-deck').value = selectedReviewDeck === 'all' || decks.some(deck => deck.id === selectedReviewDeck)
+      ? selectedReviewDeck
+      : 'all';
+    syncCustomSelect($('learning-review-deck'));
+  }
+}
+
 function filteredCards() {
   const course = $('card-course-filter').value;
   const unit = $('card-unit-filter').value;
   const mastery = $('card-mastery-filter').value;
   const query = $('card-search').value.trim().toLocaleLowerCase();
   return cards.filter(card =>
+    (currentFlashcardDeckFilter === 'all' || card.deck_id === currentFlashcardDeckFilter)
+    &&
     (course === 'all' || (card.subject || 'General') === course)
     && (unit === 'all' || (card.unit || 'General') === unit)
     && (mastery === 'all' || (mastery === 'mastered' ? card.mastered : !card.mastered))
@@ -1706,9 +2729,12 @@ function renderCardFilters() {
   const previous = select.value || 'all';
   select.innerHTML = `<option value="all">All units</option>${units.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
   select.value = units.includes(previous) ? previous : 'all';
+  syncCustomSelect(select);
 }
 
 function cardMarkup(card) {
+  const front = String(card.front || '');
+  const back = String(card.back || '');
   return `
     <article class="card-row" data-card-id="${escapeHtml(card.id)}">
       <div class="meta-line">
@@ -1716,8 +2742,8 @@ function cardMarkup(card) {
         <i class="mastery-dot ${card.mastered ? 'mastered' : ''}" role="img" aria-label="${card.mastered ? 'Mastered' : 'Still learning'}"></i>
       </div>
       <button type="button" class="card-face" data-flip-card="${escapeHtml(card.id)}" aria-pressed="false" aria-label="Show answer">
-        <span class="card-front">${escapeHtml(card.front)}</span>
-        <span class="card-back">${escapeHtml(card.back)}</span>
+        <span class="card-front" style="font-size:${cardFontSize(front)}">${renderInlineMarkdown(front)}</span>
+        <span class="card-back" style="font-size:${cardFontSize(back)}">${renderInlineMarkdown(back)}</span>
       </button>
       <details class="card-more">
         <summary aria-label="More flashcard details">···</summary>
@@ -1747,24 +2773,28 @@ function renderCardList() {
     button.setAttribute('aria-pressed', String(flipped));
     button.setAttribute('aria-label', flipped ? 'Show question' : 'Show answer');
   }));
-  list.querySelectorAll('[data-delete-card]').forEach(btn => btn.addEventListener('click', () => {
+  list.querySelectorAll('[data-delete-card]').forEach(btn => btn.addEventListener('click', async () => {
     const card = cards.find(item => item.id === btn.dataset.deleteCard);
-    if (!card || !confirm('Delete this flashcard?')) return;
-    cards = cards.filter(card => card.id !== btn.dataset.deleteCard);
-    idbSet('cards', cards);
-    renderEverything();
+    if (!card) return;
+    const confirmed = await confirmDeletion({
+      title: 'Delete flashcard?',
+      description: `Delete the question "${card.front}" and its answer?`,
+      affected: 'This card will be removed from its course deck and future study sessions.'
+    });
+    if (confirmed) await softDeleteRecords([{ collection: 'cards', ids: [card.id] }], 'Flashcard deleted.');
   }));
   list.querySelectorAll('[data-edit-card]').forEach(btn => btn.addEventListener('click', () => openCardForm(btn.dataset.editCard)));
   paginateToFit(list, { label: 'Flashcard pages', itemHeight: 154 });
 }
 function openCardForm(id = null) {
   const card = cards.find(item => item.id === id);
+  const activeDeck = decks.find(deck => deck.id === currentFlashcardDeckFilter);
   editingCardId = card ? card.id : null;
   $('card-dialog-title').textContent = card ? 'Edit flashcard' : 'Add a flashcard';
   $('add-card-btn').textContent = card ? 'Save changes' : 'Save card';
   $('card-front').value = card?.front || '';
   $('card-back').value = card?.back || '';
-  $('card-subject').value = card?.subject || '';
+  $('card-subject').value = card?.subject || activeDeck?.name || '';
   $('card-unit').value = card?.unit || '';
   $('card-format').value = card?.format || 'basic';
   $('card-dialog').showModal();
@@ -1791,31 +2821,29 @@ async function saveCard() {
     $('card-back').reportValidity();
     return;
   }
-  const card = cards.find(item => item.id === editingCardId);
-  if (card) {
-    card.front = front;
-    card.back = back;
-    card.subject = $('card-subject').value.trim();
-    card.unit = $('card-unit').value.trim();
-    card.format = $('card-format').value;
-    card.updatedAt = Date.now();
-  } else {
-    cards.push({
-      id: uid(),
-      front,
-      back,
-      subject: $('card-subject').value.trim(),
-      unit: $('card-unit').value.trim(),
-      format: $('card-format').value,
-      aiGenerated: false,
-      mastered: false,
-      createdAt: Date.now()
-    });
+  const existing = cards.find(item => item.id === editingCardId);
+  const payload = {
+    ...(existing || {}),
+    front,
+    back,
+    subject: $('card-subject').value.trim() || 'General',
+    unit: $('card-unit').value.trim(),
+    format: $('card-format').value,
+    aiGenerated: existing?.aiGenerated || false,
+    mastered: existing?.mastered || false
+  };
+  $('add-card-btn').disabled = true;
+  try {
+    await saveFlashcardRecord(payload, existing?.id || null);
+    await refreshFlashcardData();
+    $('card-dialog').close();
+    resetCardForm();
+    setStatus('flashcards-storage-status', existing ? 'Flashcard updated.' : 'Flashcard saved.');
+  } catch (error) {
+    setStatus('flashcards-storage-status', error.message || 'Could not save this flashcard.');
+  } finally {
+    $('add-card-btn').disabled = false;
   }
-  $('card-dialog').close();
-  resetCardForm();
-  await idbSet('cards', cards);
-  renderEverything();
 }
 async function generateFlashcardsFromDocument() {
   const doc = documents.find(d => d.id === $('flashcard-doc-select').value);
@@ -1844,25 +2872,20 @@ async function generateFlashcardsFromDocument() {
       setStatus('cards-ai-status', 'The AI returned no usable flashcards. Try again with a document that has more study content.');
       return;
     }
-    usable.forEach(card => {
-      cards.push({
-        id: uid(),
+    const records = usable.map(card => ({
         front: card.front,
         back: card.back,
-        subject: doc.course,
-        unit: doc.unit,
+        subject: doc.course || 'General',
+        unit: doc.unit || '',
         format: ['basic', 'definition', 'fill_blank'].includes(card.format) ? card.format : 'basic',
         aiGenerated: true,
         sourceDocumentId: doc.id,
         sourceDocumentTitle: doc.title,
-        mastered: false,
-        createdAt: Date.now()
-      });
-    });
-    await idbSet('cards', cards);
-    const skipped = incoming.length - usable.length;
-    setStatus('cards-ai-status', `Added ${usable.length} cards${skipped ? `; skipped ${skipped} incomplete or duplicate ${skipped === 1 ? 'card' : 'cards'}` : ''}.`);
-    renderEverything();
+        mastered: false
+      }));
+    const added = await importFlashcardRecords(records);
+    const skipped = incoming.length - added;
+    setStatus('cards-ai-status', `Added ${added} cards${skipped ? `; skipped ${skipped} incomplete or duplicate ${skipped === 1 ? 'card' : 'cards'}` : ''}.`);
   } catch (err) {
     setStatus('cards-ai-status', err.message || 'Could not generate cards.');
   } finally {
@@ -1871,39 +2894,75 @@ async function generateFlashcardsFromDocument() {
 }
 
 function startCardStudy() {
-  studyDeck = shuffle([...filteredCards()]);
+  studyDeck = [...filteredCards()].sort((a, b) =>
+    (a.subject || 'General').localeCompare(b.subject || 'General')
+    || (a.front || '').localeCompare(b.front || '')
+  );
   if (studyDeck.length === 0) return;
   studyIndex = 0;
+  studySessionResults = { mastered: 0, review: 0 };
+  $('panel-cards').classList.add('studying');
   $('cards-study').classList.remove('hidden');
   renderStudyCard();
   $('flip-card').focus();
 }
 function renderStudyCard() {
+  const progress = $('card-study-progress-fill').parentElement;
+  const summary = $('card-study-summary');
+  const face = $('flip-card');
+  const previous = $('card-study-prev-btn');
+  const next = $('card-study-next-btn');
   if (studyIndex >= studyDeck.length) {
     $('card-study-progress').textContent = 'Session complete.';
-    $('flip-card').textContent = 'Nice work. The deck is cleared for now.';
-    $('flip-card').classList.remove('flipped');
-    $('flip-card').setAttribute('aria-pressed', 'false');
-    $('flip-card').setAttribute('aria-label', 'Study session complete.');
+    face.classList.add('hidden');
+    summary.classList.remove('hidden');
+    summary.textContent = `You reviewed ${studyDeck.length} ${studyDeck.length === 1 ? 'card' : 'cards'}: ${studySessionResults.mastered} marked as known and ${studySessionResults.review} to review again.`;
+    previous.disabled = studyDeck.length === 0;
+    next.disabled = true;
+    $('card-got-it-btn').disabled = true;
+    $('card-again-btn').disabled = true;
+    progress.setAttribute('aria-valuenow', '100');
+    $('card-study-progress-fill').style.width = '100%';
     studyFlipped = false;
     return;
   }
   studyFlipped = false;
   $('card-study-progress').textContent = `Card ${studyIndex + 1} of ${studyDeck.length}`;
-  $('flip-card').classList.remove('flipped');
-  $('flip-card').setAttribute('aria-pressed', 'false');
-  $('flip-card').setAttribute('aria-label', 'Flashcard. Press Space to flip.');
-  $('flip-card').textContent = studyDeck[studyIndex].front;
+  face.classList.remove('hidden', 'flipped');
+  summary.classList.add('hidden');
+  face.setAttribute('aria-pressed', 'false');
+  face.setAttribute('aria-label', 'Question shown. Press Space to show answer.');
+  face.innerHTML = `<span class="card-front">${renderInlineMarkdown(studyDeck[studyIndex].front)}</span><span class="card-back">${renderInlineMarkdown(studyDeck[studyIndex].back)}</span>`;
+  face.style.setProperty('--study-card-font-size', cardFontSize(studyDeck[studyIndex].front));
+  previous.disabled = studyIndex === 0;
+  next.disabled = false;
+  $('card-got-it-btn').disabled = false;
+  $('card-again-btn').disabled = false;
+  const percent = Math.round((studyIndex / studyDeck.length) * 100);
+  progress.setAttribute('aria-valuenow', String(percent));
+  $('card-study-progress-fill').style.width = `${percent}%`;
 }
-function markStudyCard(mastered) {
+function navigateStudyCard(direction) {
+  studyIndex = Math.max(0, Math.min(studyDeck.length, studyIndex + direction));
+  renderStudyCard();
+}
+async function markStudyCard(mastered) {
   if (studyIndex >= studyDeck.length) return;
   const card = cards.find(c => c.id === studyDeck[studyIndex].id);
-  if (card) card.mastered = mastered;
+  if (!card) return;
+  try {
+    await saveFlashcardRecord({ ...card, mastered }, card.id);
+    const current = cards.find(item => item.id === card.id);
+    if (current) current.mastered = mastered;
+  } catch (error) {
+    setStatus('flashcards-storage-status', error.message || 'Could not update flashcard mastery.');
+    return;
+  }
+  studySessionResults[mastered ? 'mastered' : 'review']++;
   studyIndex++;
-  idbSet('cards', cards);
-  renderStudyCard();
   renderProgress();
-  $('flip-card').focus();
+  renderStudyCard();
+  if (studyIndex < studyDeck.length) $('flip-card').focus();
 }
 function shuffle(items) {
   for (let i = items.length - 1; i > 0; i--) {
@@ -2102,6 +3161,65 @@ function renderMarkdown(markdown) {
   return blocks.join('');
 }
 
+function normalizeTutorReply(value) {
+  return String(value || '')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\t/g, '\t')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+}
+
+function renderTutorMarkdown(markdown) {
+  const source = normalizeTutorReply(markdown);
+  if (!window.marked?.parse || !window.DOMPurify?.sanitize) {
+    console.error('Tutor Markdown libraries are unavailable; rendering the reply as safe plain text.');
+    return `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`;
+  }
+  const html = window.marked.parse(source, { gfm: true, breaks: false });
+  const sanitized = window.DOMPurify.sanitize(html);
+  const template = document.createElement('template');
+  template.innerHTML = sanitized;
+  template.content.querySelectorAll('pre').forEach(pre => {
+    const code = pre.querySelector('code');
+    const languageClass = [...(code?.classList || [])].find(className => className.startsWith('language-'));
+    const language = languageClass ? languageClass.slice('language-'.length) : 'Code';
+    const block = document.createElement('section');
+    block.className = 'markdown-code-block';
+    const header = document.createElement('header');
+    header.className = 'markdown-code-header';
+    const label = document.createElement('span');
+    label.textContent = language;
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.dataset.copyCode = '';
+    copy.textContent = 'Copy code';
+    copy.setAttribute('aria-label', `Copy ${language} code`);
+    header.append(label, copy);
+    pre.replaceWith(block);
+    block.append(header, pre);
+  });
+  const result = document.createElement('div');
+  result.append(template.content.cloneNode(true));
+  return result.innerHTML;
+}
+
+function renderMathInElementSafe(container) {
+  if (typeof window.renderMathInElement !== 'function') return;
+  window.renderMathInElement(container, {
+    delimiters: [
+      { left: '$$', right: '$$', display: true },
+      { left: '\\[', right: '\\]', display: true },
+      { left: '\\(', right: '\\)', display: false },
+      { left: '$', right: '$', display: false }
+    ],
+    throwOnError: false,
+    ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+  });
+}
+
 function bindMarkdownCodeButtons(container) {
   container.querySelectorAll('[data-copy-code]').forEach(button => button.addEventListener('click', async () => {
     const code = button.closest('.markdown-code-block').querySelector('code').dataset.fullCode
@@ -2118,13 +3236,13 @@ function bindMarkdownCodeButtons(container) {
     const fullCode = code.textContent;
     code.dataset.fullCode = fullCode;
     const lines = fullCode.split('\n');
-    if (lines.length <= 12 || block.querySelector('[data-expand-code]')) return;
-    code.textContent = lines.slice(0, 12).join('\n');
+    if (lines.length <= 20 || block.querySelector('[data-expand-code]')) return;
+    code.textContent = lines.slice(0, 20).join('\n');
     const expand = document.createElement('button');
     expand.type = 'button';
     expand.className = 'text-btn';
     expand.dataset.expandCode = '';
-    expand.textContent = `Show all ${lines.length} lines`;
+    expand.textContent = `Show more (${lines.length - 20} lines)`;
     expand.addEventListener('click', () => openCodeDialog(fullCode));
     block.appendChild(expand);
   });
@@ -2319,33 +3437,17 @@ function downloadText(content, name, type) {
   URL.revokeObjectURL(url);
 }
 
-let deletedNoteUndo = null;
-let deletedNoteUndoTimer = null;
 async function deleteNoteWithUndo(id) {
   const note = notes.find(item => item.id === id);
   if (!note) return;
-  deletedNoteUndo = note;
-  notes = notes.filter(item => item.id !== id);
-  selectedNoteId = notes.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0]?.id || null;
-  await idbSet('notes', notes);
-  renderNotes();
-  $('notes-action-message').textContent = 'Note deleted.';
-  const undo = $('note-undo-delete');
-  undo.classList.remove('hidden');
-  undo.onclick = async () => {
-    if (deletedNoteUndo) notes.push(deletedNoteUndo);
-    deletedNoteUndo = null;
-    clearTimeout(deletedNoteUndoTimer);
-    undo.classList.add('hidden');
-    $('notes-action-message').textContent = 'Note restored.';
-    await idbSet('notes', notes);
-    renderNotes();
-  };
-  clearTimeout(deletedNoteUndoTimer);
-  deletedNoteUndoTimer = setTimeout(() => {
-    deletedNoteUndo = null;
-    $('note-undo-delete').classList.add('hidden');
-  }, 8000);
+  const confirmed = await confirmDeletion({
+    title: `Delete note "${note.title || 'Untitled note'}"?`,
+    description: 'This will remove the saved note and its formatted content.',
+    affected: 'Flashcards or quiz results created from this note are not changed.'
+  });
+  if (!confirmed) return;
+  selectedNoteId = notes.filter(item => item.id !== id).sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0]?.id || null;
+  await softDeleteRecords([{ collection: 'notes', ids: [id] }], 'Note deleted.');
 }
 
 async function makeFlashcardsFromNote(id) {
@@ -2358,18 +3460,18 @@ async function makeFlashcardsFromNote(id) {
       unit: note.unit || 'General', text: truncateText(note.body, 14000)
     } });
     const generated = Array.isArray(data.cards) ? data.cards : [];
-    generated.filter(card => card && typeof card.front === 'string' && typeof card.back === 'string')
-      .forEach(card => cards.push({
-        id: uid(), front: card.front.trim(), back: card.back.trim(),
+    const records = generated.filter(card => card && typeof card.front === 'string' && typeof card.back === 'string')
+      .map(card => ({
+        front: card.front.trim(), back: card.back.trim(),
         subject: note.tag || '', unit: note.unit || '',
         format: ['basic', 'definition', 'fill_blank'].includes(card.format) ? card.format : 'basic',
         aiGenerated: true, sourceNoteId: note.id, sourceNoteTitle: note.title || 'Study note',
-        mastered: false, createdAt: Date.now()
+        mastered: false
       }));
-    await idbSet('cards', cards);
+    await importFlashcardRecords(records);
     activatePage('cards');
-    renderEverything();
-    setStatus('cards-ai-status', `Added ${generated.length} cards from ${note.title || 'your note'}.`);
+    setFlashcardsView('cards');
+    setStatus('cards-ai-status', `Added ${records.length} cards from ${note.title || 'your note'}.`);
   } catch (error) {
     setStatus('notes-ai-status', error.message || 'Could not generate flashcards.');
   }
@@ -2693,21 +3795,18 @@ function renderQuizResults() {
 async function makeFlashcardsFromMistakes() {
   if (currentQuiz.madeFlashcards) return;
   const mistakes = currentQuiz.results.filter(result => !result.correct);
-  mistakes.forEach(result => cards.push({
-    id: uid(),
+  const records = mistakes.map(result => ({
     front: result.question,
     back: result.answer ? `Your answer: ${result.answer}\nCorrect answer: ${currentQuiz.questions.find(question => question.question === result.question)?.correctAnswer || ''}` : `Correct answer: ${currentQuiz.questions.find(question => question.question === result.question)?.correctAnswer || 'Review this topic.'}`,
-    subject: currentQuiz.doc.course || '',
+    subject: currentQuiz.doc.course || 'General',
     unit: currentQuiz.doc.unit || '',
     format: 'basic',
     aiGenerated: false,
-    mastered: false,
-    createdAt: Date.now()
+    mastered: false
   }));
+  const added = await importFlashcardRecords(records);
   currentQuiz.madeFlashcards = true;
-  await idbSet('cards', cards);
-  setStatus('quiz-status', `Added ${mistakes.length} flashcards from your mistakes.`);
-  renderEverything();
+  setStatus('quiz-status', `Added ${added} flashcards from your mistakes.`);
   $('mistakes-to-cards-btn').disabled = true;
   $('mistakes-to-cards-btn').textContent = 'Flashcards added';
 }
@@ -2934,10 +4033,52 @@ function renderProgress() {
   const weekStart = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recent = timerSessions.filter(s => s.completedAt >= weekStart).sort((a, b) => b.completedAt - a.completedAt);
   $('session-list').innerHTML = recent.slice(0, 8).map(s => `
-    <div class="list-row"><div><h4>${escapeHtml(s.course || 'General')} - ${escapeHtml(s.unit || 'General')}</h4><p>${Math.round(s.seconds / 60)} minutes on ${new Date(s.completedAt).toLocaleDateString()}</p></div></div>
+    <div class="list-row">
+      <div><h4>${escapeHtml(s.course || 'General')} - ${escapeHtml(s.unit || 'General')}</h4><p>${Math.round(s.seconds / 60)} minutes on ${new Date(s.completedAt).toLocaleDateString()}</p></div>
+      <button class="icon-btn btn-danger" type="button" data-delete-session="${escapeHtml(s.id)}" aria-label="Delete focus session" title="Delete">×</button>
+    </div>
   `).join('') || '<div class="empty-state">No sessions this week.</div>';
   paginateToFit($('progress-list'), { label: 'Course progress pages', itemHeight: 86 });
-  paginateToFit($('session-list'), { label: 'Study session pages', itemHeight: 62 });
+  $('session-list').querySelectorAll('[data-delete-session]').forEach(button => button.addEventListener('click', async () => {
+    const session = timerSessions.find(item => item.id === button.dataset.deleteSession);
+    if (!session) return;
+    const confirmed = await confirmDeletion({
+      title: 'Delete focus session?',
+      description: `Delete the ${Math.round(session.seconds / 60)}-minute focus session from ${new Date(session.completedAt).toLocaleDateString()}?`,
+      affected: 'Study-time totals, charts, and course progress will be recalculated.'
+    });
+    if (confirmed) await softDeleteRecords([{ collection: 'timerSessions', ids: [session.id] }], 'Focus session deleted.');
+  }));
+  paginateToFit($('session-list'), { label: 'Study session pages', itemHeight: 72 });
+}
+
+function renderProgressWeakDecks(deckStats) {
+  const container = $('progress-weak-decks');
+  if (!container) return;
+  const weakDecks = deckStats.filter(deck => deck.weak);
+  if (!weakDecks.length) {
+    container.innerHTML = '<p class="empty-state">No weak decks right now. A deck is flagged after five recent reviews averaging below 60%.</p>';
+    return;
+  }
+  container.innerHTML = weakDecks.map(deck => {
+    const name = deck.deck || deck.topic;
+    const average = Math.max(0, Math.min(100, Number(deck.average_score_30d) || 0));
+    return `<article class="progress-weak-deck-card">
+      <div class="course-progress-heading"><h4>${escapeHtml(name)}</h4><span>Needs practice</span></div>
+      <div class="learning-mastery-track" role="progressbar" aria-label="${escapeHtml(name)} mastery" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(average)}"><span class="learning-mastery-fill" style="width:${average}%"></span></div>
+      <p>${Math.round(average)}% average · ${deck.recent_review_count} reviews in 30 days · ${deck.due_count} due</p>
+    </article>`;
+  }).join('');
+}
+
+async function loadProgressDeckStats() {
+  try {
+    const data = await learningApi('/api/stats/topics');
+    renderProgressWeakDecks(data.decks || data.topics || []);
+  } catch (error) {
+    console.error('Loading weak deck stats failed', error);
+    $('progress-weak-decks').innerHTML = `<p class="status">${escapeHtml(error.message || 'Could not load weak decks.')}</p>`;
+  }
 }
 
 function downloadJSON(data, filename) {
@@ -2973,7 +4114,8 @@ function validateBackup(backup) {
     quizResults: { score: 'number', correct: 'number', total: 'number', takenAt: 'number' },
     timerSessions: { seconds: 'number', completedAt: 'number' },
     classes: { name: 'string' },
-    assignments: { title: 'string', dueAt: 'number' }
+    assignments: { title: 'string', dueAt: 'number' },
+    tutorConversations: { title: 'string', createdAt: 'number', updatedAt: 'number' }
   };
 
   for (const collection of BACKUP_COLLECTIONS) {
@@ -2987,6 +4129,7 @@ function validateBackup(backup) {
       if (!record || typeof record !== 'object' || Array.isArray(record)
         || typeof record.id !== 'string' || !/^[\w-]{1,100}$/.test(record.id)
         || Object.entries(requiredFields[collection]).some(([field, type]) => typeof record[field] !== type)
+        || (collection === 'tutorConversations' && !Array.isArray(record.messages))
         || (collection === 'assignments' && (!Number.isFinite(record.dueAt)
           || !Number.isFinite(new Date(record.dueAt).getTime())
           || (record.reminderAt != null && (!Number.isFinite(record.reminderAt)
@@ -2995,7 +4138,16 @@ function validateBackup(backup) {
       }
     });
   }
-  return Object.fromEntries(BACKUP_COLLECTIONS.map(collection => [collection, backup.data[collection] || []]));
+  const localSettings = backup.localSettings || {};
+  if (!localSettings || typeof localSettings !== 'object' || Array.isArray(localSettings)
+    || Object.entries(localSettings).some(([key, value]) =>
+      !BACKUP_LOCAL_SETTINGS.includes(key) || typeof value !== 'string' || value.length > 100)) {
+    throw new Error('The backup contains invalid local settings.');
+  }
+  return {
+    ...Object.fromEntries(BACKUP_COLLECTIONS.map(collection => [collection, backup.data[collection] || []])),
+    localSettings
+  };
 }
 
 function mergeRecords(existing, imported) {
@@ -3014,7 +4166,7 @@ async function saveBackupCollections(collections) {
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
-    BACKUP_COLLECTIONS.forEach(key => tx.objectStore(STORE).put({ key, value: collections[key] }));
+    BACKUP_COLLECTIONS.filter(key => key !== 'cards').forEach(key => tx.objectStore(STORE).put({ key, value: collections[key] }));
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error || new Error('Could not save imported data.'));
     tx.onabort = () => reject(tx.error || new Error('Import was cancelled before it could be saved.'));
@@ -3025,19 +4177,32 @@ async function importAllData(file) {
   const backup = validateBackup(JSON.parse(await file.text()));
   const merged = {};
   BACKUP_COLLECTIONS.forEach(key => {
+    if (key === 'cards') {
+      merged.cards = cards;
+      return;
+    }
     merged[key] = mergeRecords(
-      { documents, cards, notes, quizResults, timerSessions, classes, assignments }[key],
+      { documents, cards, notes, quizResults, timerSessions, classes, assignments, tutorConversations }[key],
       backup[key]
     );
   });
+  await importFlashcardRecords(backup.cards);
+  merged.cards = cards;
   await saveBackupCollections(merged);
   documents = merged.documents;
-  cards = merged.cards;
   notes = merged.notes;
   quizResults = merged.quizResults;
   timerSessions = merged.timerSessions;
   classes = merged.classes;
   assignments = merged.assignments;
+  tutorConversations = merged.tutorConversations;
+  activeConversationId = tutorConversations.some(item => item.id === activeConversationId)
+    ? activeConversationId
+    : tutorConversations[0]?.id || null;
+  chatHistory = tutorConversations.find(item => item.id === activeConversationId)?.messages || [];
+  await persistTutorConversations();
+  Object.entries(backup.localSettings).forEach(([key, value]) => localStorage.setItem(key, value));
+  if (backup.localSettings[THEME_KEY]) setTheme(backup.localSettings[THEME_KEY]);
   renderEverything();
   if (!currentPreviewDocId && documents[0]) previewDocument(documents[0].id);
   return BACKUP_COLLECTIONS.reduce((total, key) => total + backup[key].length, 0);
@@ -3070,6 +4235,7 @@ function renderEverything() {
   renderDeckBar();
   renderCardFilters();
   renderCardList();
+  renderFlashcardSourceOptions();
   renderNotes();
   renderClasses();
   renderDashboard();
@@ -3078,7 +4244,485 @@ function renderEverything() {
   renderTutorScopeOptions();
   renderReminderBadge();
   updateStudyMaterialIndex();
+  document.querySelectorAll('select').forEach(syncCustomSelect);
 }
+
+function setFlashcardsView(view) {
+  const views = ['cards', 'generate', 'review', 'stats'];
+  if (!views.includes(view)) return;
+  sessionStorage.setItem(FLASHCARD_VIEW_KEY, view);
+  document.querySelectorAll('[data-flashcard-view]').forEach(button => {
+    const active = button.dataset.flashcardView === view;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  views.forEach(name => $(`flashcards-view-${name}`).classList.toggle('hidden', name !== view));
+  if (view === 'generate') {
+    const selectedDeck = decks.find(deck => deck.id === currentFlashcardDeckFilter);
+    if (selectedDeck) $('learning-topic').value = selectedDeck.id;
+  }
+  if (view === 'review') loadLearningReview();
+  if (view === 'stats') loadLearningStats();
+}
+
+async function flashcardApi(path, body, method) {
+  const response = await apiFetch(path, {
+    method: method || (body === undefined ? 'GET' : 'POST'),
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+  });
+  if (!response.ok) throw new Error(await apiErrorMessage(response, 'The flashcard request failed.'));
+  return response.status === 204 ? null : response.json();
+}
+
+async function learningApi(path, body) {
+  return flashcardApi(path, body);
+}
+
+function mapServerCard(card) {
+  return {
+    ...card,
+    createdAt: new Date(card.created_at).getTime(),
+    dueAt: card.due_at,
+    sourceDocumentId: card.sourceDocumentId || '',
+    sourceDocumentTitle: card.sourceDocumentTitle || '',
+    sourceNoteId: card.sourceNoteId || '',
+    sourceNoteTitle: card.sourceNoteTitle || ''
+  };
+}
+
+async function refreshFlashcardData(render = true) {
+  const [cardData, deckData] = await Promise.all([
+    flashcardApi('/api/cards'),
+    flashcardApi('/api/decks')
+  ]);
+  cards = cardData.cards.map(mapServerCard);
+  decks = deckData.decks;
+  updateFlashcardDueBadge(decks.reduce((sum, deck) => sum + (Number(deck.due_count) || 0), 0));
+  if (render) {
+    renderDeckBar();
+    renderCardFilters();
+    renderCardList();
+    renderTutorOverview();
+    renderProgress();
+  }
+}
+
+async function importLegacyFlashcards(localCards) {
+  if (localStorage.getItem(FLASHCARD_IMPORT_DONE_KEY) === 'true') return;
+  if (await idbGet('flashcards-local-backup') === undefined) {
+    const backedUp = await idbSet('flashcards-local-backup', localCards);
+    if (!backedUp) throw new Error('Could not preserve the local flashcard backup.');
+  }
+  const importedCount = localCards.length ? await importFlashcardRecords(localCards) : 0;
+  localStorage.setItem(FLASHCARD_IMPORT_DONE_KEY, 'true');
+  await idbSet('cards', []);
+  if (localCards.length) {
+    setStatus('flashcards-storage-status', `Imported ${importedCount} ${importedCount === 1 ? 'card' : 'cards'} from this browser. A backup of the old local cards was kept.`);
+  }
+}
+
+async function saveFlashcardRecord(input, cardId = null) {
+  const deckName = String(input.subject || 'General').trim() || 'General';
+  let deck = decks.find(item => item.name.toLocaleLowerCase() === deckName.toLocaleLowerCase())
+    || decks.find(item => item.id === input.deck_id);
+  if (!deck) {
+    const created = await flashcardApi('/api/decks', { name: deckName });
+    deck = created.deck;
+    decks.push(deck);
+  }
+  const payload = {
+    deck_id: deck.id,
+    subject: input.subject || deck.name,
+    unit: input.unit || '',
+    format: input.format || 'basic',
+    front: input.front,
+    back: input.back,
+    aiGenerated: input.aiGenerated === true,
+    mastered: input.mastered === true,
+    sourceDocumentId: input.sourceDocumentId || '',
+    sourceDocumentTitle: input.sourceDocumentTitle || '',
+    sourceNoteId: input.sourceNoteId || '',
+    sourceNoteTitle: input.sourceNoteTitle || ''
+  };
+  const result = await flashcardApi(
+    cardId ? `/api/cards/${encodeURIComponent(cardId)}` : '/api/cards',
+    payload,
+    cardId ? 'PATCH' : 'POST'
+  );
+  return result.card;
+}
+
+async function importFlashcardRecords(records) {
+  if (!records.length) return 0;
+  let imported = 0;
+  for (let index = 0; index < records.length; index += 5000) {
+    const result = await flashcardApi('/api/cards/import', { cards: records.slice(index, index + 5000) });
+    imported += result.imported_count;
+  }
+  await refreshFlashcardData();
+  return imported;
+}
+
+function renderFlashcardSourceOptions() {
+  const notesSelect = $('flashcard-note-source');
+  const docsSelect = $('flashcard-document-source');
+  if (!notesSelect || !docsSelect) return;
+  notesSelect.innerHTML = notes.length
+    ? notes.map(note => `<option value="${escapeHtml(note.id)}">${escapeHtml(note.title || 'Untitled note')}</option>`).join('')
+    : '<option value="">No saved notes</option>';
+  docsSelect.innerHTML = documents.length
+    ? documents.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title || 'Untitled document')}</option>`).join('')
+    : '<option value="">No documents</option>';
+  syncCustomSelect(notesSelect);
+  syncCustomSelect(docsSelect);
+}
+
+function loadFlashcardSourceText() {
+  const type = $('flashcard-source-type').value;
+  $('flashcard-note-source-wrap').classList.toggle('hidden', type !== 'note');
+  $('flashcard-document-source-wrap').classList.toggle('hidden', type !== 'document');
+  const content = type === 'note'
+    ? notes.find(note => note.id === $('flashcard-note-source').value)?.body || ''
+    : type === 'document'
+      ? documents.find(item => item.id === $('flashcard-document-source').value)?.extractedText || ''
+      : flashcardPastedSource;
+  $('flashcard-truncation-notice').classList.toggle('hidden', content.length <= 6000);
+  $('learning-notes').value = content.slice(0, 6000);
+}
+
+async function loadFlashcardsFromServer() {
+  const legacyCards = await idbGet('cards') || [];
+  try {
+    await importLegacyFlashcards(legacyCards);
+    await refreshFlashcardData(false);
+  } catch (error) {
+    console.error('Flashcard storage could not be loaded', error);
+    setStatus('flashcards-storage-status', error.message || 'Could not load flashcards from the server. Your local backup is still available.');
+  }
+}
+
+function renderLearningPreview() {
+  const container = $('learning-preview-list');
+  container.replaceChildren();
+  learningPreviewCards.forEach((card, index) => {
+    const article = document.createElement('article');
+    article.className = 'learning-preview-card';
+    const selected = document.createElement('input');
+    selected.type = 'checkbox';
+    selected.checked = card.selected !== false;
+    selected.setAttribute('aria-label', `Select card ${index + 1} to save`);
+    selected.addEventListener('change', () => {
+      card.selected = selected.checked;
+      $('learning-save-btn').disabled = !learningPreviewCards.some(item => item.selected !== false);
+    });
+    const fields = document.createElement('div');
+    fields.className = 'learning-preview-card-fields';
+    [['Question', 'front', 500], ['Answer', 'back', 2000]].forEach(([label, key, maxLength]) => {
+      const fieldLabel = document.createElement('label');
+      fieldLabel.textContent = label;
+      const input = key === 'front' ? document.createElement('input') : document.createElement('textarea');
+      input.value = card[key];
+      input.maxLength = maxLength;
+      input.setAttribute('aria-label', `${label} for card ${index + 1}`);
+      input.addEventListener('input', () => { card[key] = input.value; });
+      fieldLabel.appendChild(input);
+      fields.appendChild(fieldLabel);
+    });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-sm btn-danger';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove card ${index + 1}`);
+    remove.addEventListener('click', () => {
+      learningPreviewCards.splice(index, 1);
+      renderLearningPreview();
+    });
+    article.append(selected, fields, remove);
+    container.appendChild(article);
+  });
+  $('learning-save-btn').disabled = !learningPreviewCards.some(card => card.selected !== false);
+}
+
+async function generateLearningCards() {
+  const notesText = $('learning-notes').value.trim();
+  const deck = decks.find(item => item.id === $('learning-topic').value);
+  if (!notesText || !deck) {
+    setStatus('learning-generate-status', 'Choose a source and deck before generating cards.');
+    return;
+  }
+  const button = $('learning-generate-btn');
+  button.disabled = true;
+  setStatus('learning-generate-status', 'Generating cards… The first request may take longer while the AI service wakes up.');
+  try {
+    const data = await learningApi('/api/cards/generate', {
+      notes: notesText.slice(0, 6000),
+      topic: deck.name,
+      count: Number($('learning-count').value)
+    });
+    learningPreviewCards = data.cards.map(card => ({ ...card, selected: true }));
+    renderLearningPreview();
+    setStatus('learning-generate-status', `Preview ready: ${learningPreviewCards.length} cards for ${data.topic}. Review or edit them before saving.`);
+  } catch (error) {
+    console.error('Flashcard generation failed', error);
+    setStatus('learning-generate-status', error.message || 'Could not generate cards. Please try again.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function saveLearningCards() {
+  const deck = decks.find(item => item.id === $('learning-topic').value);
+  const selected = learningPreviewCards
+    .filter(card => card.selected !== false)
+    .map(({ front, back }) => ({
+      front: front.trim(),
+      back: back.trim(),
+      aiGenerated: true,
+      subject: deck?.name || 'General',
+      sourceNoteId: $('flashcard-source-type').value === 'note' ? $('flashcard-note-source').value : '',
+      sourceNoteTitle: $('flashcard-source-type').value === 'note'
+        ? notes.find(note => note.id === $('flashcard-note-source').value)?.title || ''
+        : '',
+      sourceDocumentId: $('flashcard-source-type').value === 'document' ? $('flashcard-document-source').value : '',
+      sourceDocumentTitle: $('flashcard-source-type').value === 'document'
+        ? documents.find(item => item.id === $('flashcard-document-source').value)?.title || ''
+        : ''
+    }));
+  if (!deck || !selected.length || selected.some(card => !card.front || !card.back)) {
+    setStatus('learning-generate-status', 'Choose a deck, select cards, and make sure each question and answer is filled in.');
+    return;
+  }
+  const button = $('learning-save-btn');
+  button.disabled = true;
+  setStatus('learning-generate-status', 'Saving cards… The database may take a moment to wake up.');
+  try {
+    const data = await learningApi('/api/cards/save', { deck_id: deck.id, topic: deck.name, cards: selected });
+    const savedCount = data.cards.length;
+    learningPreviewCards = learningPreviewCards.filter(card => card.selected === false);
+    renderLearningPreview();
+    await refreshFlashcardData();
+    setStatus('learning-generate-status', `Saved ${savedCount} ${savedCount === 1 ? 'card' : 'cards'} to ${deck.name}.`);
+    loadLearningStats();
+  } catch (error) {
+    console.error('Saving flashcards failed', error);
+    setStatus('learning-generate-status', error.message || 'Could not save cards. Please try again.');
+  } finally {
+    button.disabled = !learningPreviewCards.some(card => card.selected !== false);
+  }
+}
+
+function renderLearningReviewCard() {
+  const card = learningReviewCards[learningReviewIndex];
+  const cardElement = $('learning-review-card');
+  const empty = $('learning-nothing-due');
+  cardElement.classList.toggle('hidden', !card);
+  empty.classList.toggle('hidden', Boolean(card) || learningReviewLoading);
+  $('learning-due-count').textContent = learningReviewLoading
+    ? 'Checking due cards…'
+    : `${learningReviewDueCount} ${learningReviewDueCount === 1 ? 'card' : 'cards'} due`;
+  if (!card) return;
+  $('learning-review-topic').textContent = card.topic;
+  $('learning-review-front').textContent = card.front;
+  $('learning-review-answer').value = '';
+  $('learning-submit-answer').classList.remove('hidden');
+  $('learning-submit-answer').disabled = learningReviewLoading;
+  $('learning-grade-result').classList.add('hidden');
+  learningReviewGraded = false;
+  learningReviewShownAt = Date.now();
+}
+
+async function loadLearningReview() {
+  if (learningReviewLoading) return;
+  learningReviewLoading = true;
+  setStatus('learning-review-status', 'Loading due cards… The database may take a moment to wake up.');
+  renderLearningReviewCard();
+  try {
+    const selectedDeck = $('learning-review-deck').value;
+    const query = selectedDeck && selectedDeck !== 'all'
+      ? `?limit=10&deck_id=${encodeURIComponent(selectedDeck)}`
+      : '?limit=10';
+    const data = await learningApi(`/api/review/next${query}`);
+    learningReviewCards = data.cards;
+    learningReviewIndex = 0;
+    learningReviewDueCount = data.total_due;
+    setStatus('learning-review-status', '');
+  } catch (error) {
+    learningReviewCards = [];
+    learningReviewDueCount = 0;
+    setStatus('learning-review-status', error.message || 'Could not load due cards.');
+  } finally {
+    learningReviewLoading = false;
+    renderLearningReviewCard();
+  }
+}
+
+async function submitLearningAnswer() {
+  const card = learningReviewCards[learningReviewIndex];
+  if (!card || learningReviewGraded || learningReviewLoading) return;
+  const button = $('learning-submit-answer');
+  button.disabled = true;
+  setStatus('learning-review-status', 'Checking your answer…');
+  try {
+    const result = await learningApi('/api/review/grade', {
+      card_id: card.id,
+      user_answer: $('learning-review-answer').value,
+      response_ms: Math.max(0, Date.now() - learningReviewShownAt)
+    });
+    learningReviewGraded = true;
+    learningReviewDueCount = Math.max(0, learningReviewDueCount - 1);
+    const reviewedDeck = decks.find(deck => deck.id === card.deck_id);
+    if (reviewedDeck) reviewedDeck.due_count = Math.max(0, Number(reviewedDeck.due_count) - 1);
+    updateFlashcardDueBadge(Math.max(0, flashcardDueCount - 1));
+    renderFlashcardDeckSummary();
+    $('learning-grade-score').textContent = `${result.score}%`;
+    $('learning-grade-feedback').textContent = result.feedback;
+    $('learning-correct-answer').textContent = result.correct_answer;
+    $('learning-next-due').textContent = `Next review: ${new Date(result.next_due_at).toLocaleString()}`;
+    $('learning-grade-result').classList.remove('hidden');
+    $('learning-submit-answer').classList.add('hidden');
+    setStatus('learning-review-status', '');
+    loadProgressDeckStats();
+  } catch (error) {
+    console.error('Answer grading failed', error);
+    setStatus('learning-review-status', error.message || 'Could not check the answer. Please try again.');
+    button.disabled = false;
+  }
+}
+
+async function showNextLearningCard() {
+  if (!learningReviewGraded || learningReviewLoading) return;
+  learningReviewIndex++;
+  if (learningReviewIndex >= learningReviewCards.length) {
+    await loadLearningReview();
+    return;
+  }
+  renderLearningReviewCard();
+  $('learning-review-answer').focus();
+}
+
+function renderLearningStats(data) {
+  const topics = $('learning-topic-stats');
+  const chart = $('learning-activity-chart');
+  topics.replaceChildren();
+  chart.replaceChildren();
+  const deckStats = data.decks || data.topics || [];
+  if (!deckStats.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = 'No flashcard decks yet. Generate or add cards to see deck stats.';
+    topics.appendChild(empty);
+  }
+  deckStats.forEach(topic => {
+    const item = document.createElement('article');
+    item.className = `learning-topic-stat${topic.weak ? ' weak' : ''}`;
+    const heading = document.createElement('div');
+    heading.className = 'learning-topic-stat-heading';
+    const title = document.createElement('strong');
+    title.textContent = topic.deck || topic.topic;
+    heading.appendChild(title);
+    if (topic.weak) {
+      const badge = document.createElement('span');
+      badge.className = 'learning-weak-badge';
+      badge.textContent = 'Needs practice';
+      heading.appendChild(badge);
+    }
+    const average = topic.average_score_30d === null
+      ? 0
+      : Math.max(0, Math.min(100, Number(topic.average_score_30d)));
+    const track = document.createElement('div');
+    track.className = 'learning-mastery-track';
+    track.setAttribute('role', 'progressbar');
+    track.setAttribute('aria-label', `${topic.deck || topic.topic} mastery`);
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', '100');
+    track.setAttribute('aria-valuenow', String(Math.round(average)));
+    const fill = document.createElement('span');
+    fill.className = 'learning-mastery-fill';
+    fill.style.width = `${average}%`;
+    track.appendChild(fill);
+    const meta = document.createElement('div');
+    meta.className = 'learning-topic-stat-meta';
+    meta.textContent = `${topic.average_score_30d === null ? 'No reviews yet' : `${Math.round(average)}% average`} · ${topic.total_cards} cards · ${topic.due_count} due · ${topic.review_count} reviews`;
+    item.append(heading, track, meta);
+    topics.appendChild(item);
+  });
+  renderProgressWeakDecks(deckStats);
+  const maxReviews = Math.max(1, ...data.activity.map(day => Number(day.reviews)));
+  data.activity.forEach(day => {
+    const item = document.createElement('div');
+    item.className = 'learning-activity-day';
+    item.setAttribute('role', 'listitem');
+    const wrap = document.createElement('div');
+    wrap.className = 'learning-activity-bar-wrap';
+    const bar = document.createElement('span');
+    bar.className = 'learning-activity-bar';
+    bar.style.height = `${Math.max(2, Number(day.reviews) / maxReviews * 100)}%`;
+    bar.title = `${day.reviews} reviews`;
+    wrap.appendChild(bar);
+    const label = document.createElement('span');
+    label.textContent = new Date(`${day.day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' });
+    label.title = `${day.day}: ${day.reviews} reviews`;
+    item.append(wrap, label);
+    chart.appendChild(item);
+  });
+}
+
+async function loadLearningStats() {
+  if (learningStatsLoading) return;
+  learningStatsLoading = true;
+  setStatus('learning-stats-status', 'Loading deck stats… The database may take a moment to wake up.');
+  try {
+    const data = await learningApi('/api/stats/topics');
+    renderLearningStats(data);
+    setStatus('learning-stats-status', '');
+  } catch (error) {
+    console.error('Loading deck stats failed', error);
+    setStatus('learning-stats-status', error.message || 'Could not load deck stats.');
+  } finally {
+    learningStatsLoading = false;
+  }
+}
+
+document.querySelectorAll('[data-flashcard-view]').forEach(button => {
+  button.addEventListener('click', () => setFlashcardsView(button.dataset.flashcardView));
+});
+$('learning-generate-btn').addEventListener('click', generateLearningCards);
+$('learning-save-btn').addEventListener('click', saveLearningCards);
+$('learning-refresh-review').addEventListener('click', loadLearningReview);
+$('learning-submit-answer').addEventListener('click', submitLearningAnswer);
+$('learning-next-card').addEventListener('click', showNextLearningCard);
+$('learning-refresh-stats').addEventListener('click', loadLearningStats);
+$('learning-review-deck').addEventListener('change', loadLearningReview);
+$('flashcard-source-type').addEventListener('change', event => {
+  if (flashcardSelectedSource === 'paste') flashcardPastedSource = $('learning-notes').value;
+  flashcardSelectedSource = event.target.value;
+  loadFlashcardSourceText();
+});
+$('flashcard-note-source').addEventListener('change', loadFlashcardSourceText);
+$('flashcard-document-source').addEventListener('change', loadFlashcardSourceText);
+$('learning-notes').addEventListener('input', () => {
+  if ($('flashcard-source-type').value === 'paste') {
+    flashcardPastedSource = $('learning-notes').value.slice(0, 6000);
+    $('flashcard-truncation-notice').classList.add('hidden');
+  }
+});
+$('learning-topic').addEventListener('change', async event => {
+  if (event.target.value !== 'new') return;
+  const name = window.prompt('Name your new deck');
+  if (!name?.trim()) {
+    renderFlashcardDeckSelectors();
+    return;
+  }
+  try {
+    const result = await flashcardApi('/api/decks', { name: name.trim() });
+    await refreshFlashcardData(false);
+    $('learning-topic').value = result.deck.id;
+  } catch (error) {
+    setStatus('learning-generate-status', error.message || 'Could not create the deck.');
+    renderFlashcardDeckSelectors();
+  }
+});
 
 $('upload-doc-btn').addEventListener('click', addDocument);
 function updateSelectedUpload(file) {
@@ -3167,8 +4811,26 @@ if (typeof ResizeObserver !== 'undefined') {
   });
   documentPreviewObserver.observe($('doc-preview'));
 }
-$('chat-send').addEventListener('click', sendChat);
+$('chat-send').addEventListener('click', () => sendChat());
 $('access-token-input').value = localStorage.getItem(ACCESS_TOKEN_KEY) || '';
+$('token-settings').open = !$('access-token-input').value;
+function updateTutorConnectionStatus(state) {
+  const tokenPresent = Boolean($('access-token-input')?.value.trim() || localStorage.getItem(ACCESS_TOKEN_KEY));
+  if (state === 'connected') tutorAuthRejected = false;
+  if (state === 'missing') tutorAuthRejected = true;
+  const connected = tokenPresent && !tutorAuthRejected;
+  $('tutor-connection-chip').textContent = connected ? 'Connected' : 'Token needed';
+  $('tutor-connection-chip').dataset.state = connected ? 'connected' : 'missing';
+  $('tutor-token-prompt').classList.toggle('hidden', connected);
+}
+function openTutorTokenSettings() {
+  activatePage('settings');
+  $('token-settings').open = true;
+  requestAnimationFrame(() => $('access-token-input').focus());
+}
+updateTutorConnectionStatus();
+$('access-token-input').addEventListener('input', () =>
+  updateTutorConnectionStatus($('access-token-input').value.trim() ? 'connected' : 'missing'));
 function updateTokenVisibilityButton(showing) {
   $('toggle-access-token-btn').setAttribute('aria-label', showing ? 'Hide access token' : 'Show access token');
   $('toggle-access-token-btn').innerHTML = showing
@@ -3207,12 +4869,49 @@ $('save-access-token-btn').addEventListener('click', () => {
   if (!token) {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     setStatus('access-token-status', 'Saved token cleared.');
+    updateTutorConnectionStatus('missing');
     return;
   }
   localStorage.setItem(ACCESS_TOKEN_KEY, token);
   setStatus('access-token-status', 'Access token saved in this browser.');
+  $('token-settings').open = false;
+  updateTutorConnectionStatus('connected');
 });
 $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+$('chat-input').addEventListener('input', event => {
+  const input = event.currentTarget;
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, 144)}px`;
+  $('chat-send').disabled = chatPending || !input.value.trim();
+});
+$('chat-input').addEventListener('paste', event => {
+  const input = event.currentTarget;
+  const pasted = event.clipboardData?.getData('text/plain') || '';
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  const allowedLength = input.maxLength - (input.value.length - (end - start));
+  if (allowedLength <= 0) {
+    event.preventDefault();
+    return;
+  }
+  event.preventDefault();
+  const text = pasted.slice(0, allowedLength);
+  input.setRangeText(text, start, end, 'end');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+});
+$('chat-log').addEventListener('scroll', () => {
+  const log = $('chat-log');
+  chatAtLatest = log.scrollHeight - log.clientHeight - log.scrollTop <= 48;
+  $('chat-jump-latest').classList.toggle('hidden', chatAtLatest || chatHistory.length === 0);
+});
+$('chat-jump-latest').addEventListener('click', () => {
+  chatAtLatest = true;
+  $('chat-log').scrollTo({
+    top: $('chat-log').scrollHeight,
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+  });
+  $('chat-jump-latest').classList.add('hidden');
+});
 $('open-add-card-btn').addEventListener('click', () => openCardForm());
 $('card-course-filter').addEventListener('change', renderCardList);
 $('close-card-dialog').addEventListener('click', () => $('card-dialog').close());
@@ -3223,29 +4922,41 @@ $('card-unit-filter').addEventListener('change', renderCardList);
 $('card-mastery-filter').addEventListener('change', renderCardList);
 $('card-search').addEventListener('input', renderCardList);
 $('generate-cards-btn').addEventListener('click', generateFlashcardsFromDocument);
-$('export-cards-btn').addEventListener('click', () => downloadJSON(cards, 'margin-flashcards.json'));
-$('import-cards-btn').addEventListener('click', () => $('import-cards-file').click());
-$('import-cards-file').addEventListener('change', e => readJSONFile(e.target.files[0], data => {
-  if (Array.isArray(data)) {
-    data.forEach(c => cards.push({ id: uid(), front: c.front || '', back: c.back || '', subject: c.subject || c.course || '', unit: c.unit || '', format: c.format || 'basic', aiGenerated: !!c.aiGenerated, mastered: !!c.mastered, createdAt: Date.now() }));
-    idbSet('cards', cards);
-    renderEverything();
+$('export-cards-btn').addEventListener('click', async () => {
+  try {
+    await refreshFlashcardData(false);
+    downloadJSON(cards, 'margin-flashcards.json');
+  } catch (error) {
+    setStatus('flashcards-storage-status', error.message || 'Could not export flashcards.');
   }
-}));
+});
+$('import-cards-btn').addEventListener('click', () => $('import-cards-file').click());
+$('import-cards-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data)) throw new Error('The deck file must contain a list of cards.');
+    const imported = await importFlashcardRecords(data);
+    setStatus('flashcards-storage-status', `Imported ${imported} ${imported === 1 ? 'card' : 'cards'} into Neon.`);
+  } catch (error) {
+    setStatus('flashcards-storage-status', error.message || 'Could not import that deck.');
+  } finally {
+    event.target.value = '';
+  }
+});
 $('start-card-study-toolbar-btn').addEventListener('click', startCardStudy);
 $('cards-study').addEventListener('keydown', event => {
-  if (!studyDeck.length || event.target.matches('button, input, textarea, select')) return;
-  if (event.code === 'Space') {
+  if (!studyDeck.length || event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+  if (event.code === 'Space' && (event.target === $('flip-card') || !event.target.matches('button, a'))) {
     event.preventDefault();
     $('flip-card').click();
-  } else if (event.key === 'ArrowRight') {
+  } else if (event.key === 'ArrowRight' && studyIndex < studyDeck.length) {
     event.preventDefault();
-    if (studyIndex < studyDeck.length) studyIndex++;
-    renderStudyCard();
+    navigateStudyCard(1);
   } else if (event.key === 'ArrowLeft') {
     event.preventDefault();
-    studyIndex = Math.max(0, studyIndex - 1);
-    renderStudyCard();
+    navigateStudyCard(-1);
   }
 });
 $('flip-card').addEventListener('click', () => {
@@ -3254,12 +4965,14 @@ $('flip-card').addEventListener('click', () => {
   $('flip-card').classList.toggle('flipped', studyFlipped);
   $('flip-card').setAttribute('aria-pressed', String(studyFlipped));
   $('flip-card').setAttribute('aria-label', studyFlipped ? 'Answer shown. Press Space to show question.' : 'Question shown. Press Space to show answer.');
-  $('flip-card').textContent = studyFlipped ? studyDeck[studyIndex].back : studyDeck[studyIndex].front;
 });
 $('card-got-it-btn').addEventListener('click', () => markStudyCard(true));
 $('card-again-btn').addEventListener('click', () => markStudyCard(false));
+$('card-study-prev-btn').addEventListener('click', () => navigateStudyCard(-1));
+$('card-study-next-btn').addEventListener('click', () => navigateStudyCard(1));
 $('card-study-exit-btn').addEventListener('click', () => {
   $('cards-study').classList.add('hidden');
+  $('panel-cards').classList.remove('studying');
   $('start-card-study-toolbar-btn').focus();
 });
 $('generate-quiz-btn').addEventListener('click', generateQuiz);
@@ -3302,18 +5015,24 @@ $('import-notes-file').addEventListener('change', e => readJSONFile(e.target.fil
   }
 }));
 $('export-all-data-btn').addEventListener('click', () => {
-  try {
+  (async () => {
+    try {
+    await refreshFlashcardData(false);
     const backup = {
       format: BACKUP_FORMAT,
       version: BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
-      data: { documents, cards, notes, quizResults, timerSessions, classes, assignments }
+      data: { documents, cards, notes, quizResults, timerSessions, classes, assignments, tutorConversations },
+      localSettings: Object.fromEntries(BACKUP_LOCAL_SETTINGS
+        .filter(key => localStorage.getItem(key) !== null)
+        .map(key => [key, localStorage.getItem(key)]))
     };
     downloadJSON(backup, 'studybuddy-backup.json');
     setStatus('all-data-status', 'Backup exported. Keep the downloaded file somewhere safe.');
-  } catch (error) {
+    } catch (error) {
     setStatus('all-data-status', error.message || 'Could not export a backup.');
-  }
+    }
+  })();
 });
 $('import-all-data-btn').addEventListener('click', () => $('import-all-data-file').click());
 $('import-all-data-file').addEventListener('change', async e => {
@@ -3368,20 +5087,182 @@ $('calendar-day-dialog').addEventListener('click', event => {
 });
 $('tutor-history-open').addEventListener('click', () => {
   historyPageIndex = 0;
+  $('tutor-history-search').value = '';
   renderTutorHistory();
   $('tutor-history-dialog').showModal();
+  $('tutor-history-search').focus();
+});
+$('tutor-history-search').addEventListener('input', () => {
+  historyPageIndex = 0;
+  renderTutorHistory();
+});
+$('new-chat-btn').addEventListener('click', () => {
+  $('tutor-menu').open = false;
+  createTutorConversation();
+  $('chat-input').focus();
+});
+$('rename-chat-btn').addEventListener('click', () => {
+  $('tutor-menu').open = false;
+  renameTutorConversation(tutorConversations.find(item => item.id === activeConversationId));
+});
+$('export-chat-btn').addEventListener('click', () => {
+  $('tutor-menu').open = false;
+  exportTutorConversation();
+});
+$('tutor-conversation-title').addEventListener('change', async event => {
+  const conversation = tutorConversations.find(item => item.id === activeConversationId);
+  if (!conversation) return;
+  conversation.title = event.target.value.trim().slice(0, 80) || 'New chat';
+  await persistTutorConversations();
+  event.target.value = conversation.title;
+});
+$('tutor-conversation-title').addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    event.currentTarget.blur();
+  } else if (event.key === 'Escape') {
+    event.currentTarget.value = tutorConversations.find(item => item.id === activeConversationId)?.title || 'New chat';
+    event.currentTarget.blur();
+  }
 });
 $('tutor-history-close').addEventListener('click', () => $('tutor-history-dialog').close());
+$('tutor-overview-open').addEventListener('click', () => setTutorOverviewOpen(true));
+$('tutor-aside-close').addEventListener('click', () => setTutorOverviewOpen(false));
+$('tutor-aside-backdrop').addEventListener('click', () => setTutorOverviewOpen(false));
+$('tutor-add-token').addEventListener('click', openTutorTokenSettings);
+$('tutor-menu').addEventListener('keydown', event => {
+  const items = [...$('tutor-menu').querySelectorAll('[role="menuitem"]')];
+  const activeIndex = items.indexOf(document.activeElement);
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    $('tutor-menu').open = false;
+    $('tutor-menu').querySelector('summary').focus();
+    return;
+  }
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (!$('tutor-menu').open) $('tutor-menu').open = true;
+    const direction = event.key === 'ArrowDown' ? 1 : -1;
+    const nextIndex = (activeIndex + direction + items.length) % items.length;
+    items[nextIndex]?.focus();
+  } else if (event.key === 'Home' || event.key === 'End') {
+    event.preventDefault();
+    items[event.key === 'Home' ? 0 : items.length - 1]?.focus();
+  }
+});
+$('tutor-aside').addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    setTutorOverviewOpen(false);
+    return;
+  }
+  if (event.key === 'Tab' && $('tutor-aside').classList.contains('open')) {
+    const focusable = [...$('tutor-aside').querySelectorAll('button:not(:disabled)')];
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+});
+$('clear-chat-btn').addEventListener('click', async () => {
+  $('tutor-menu').open = false;
+  const confirmed = await confirmBulkDeletion('Clear all Tutor conversations and messages? This does not delete notes or flashcards made from replies.');
+  if (!confirmed) return;
+  tutorConversations = [];
+  chatHistory = [];
+  activeConversationId = null;
+  await idbSet('tutorConversations', tutorConversations);
+  createTutorConversation();
+  renderTutorHistory();
+});
+$('clear-quiz-history-btn').addEventListener('click', async () => {
+  if (!quizResults.length) {
+    setStatus('all-data-status', 'There is no quiz history to clear.');
+    return;
+  }
+  const confirmed = await confirmBulkDeletion(`Delete all ${quizResults.length} quiz attempts? Quiz accuracy charts and course averages will be recalculated.`);
+  if (!confirmed) return;
+  const previous = quizResults;
+  quizResults = [];
+  if (!await idbSet('quizResults', quizResults)) {
+    quizResults = previous;
+    setStatus('all-data-status', 'Quiz history could not be cleared. Your data was restored.');
+    return;
+  }
+  renderEverything();
+  setStatus('all-data-status', 'Quiz history cleared.');
+});
+$('clear-timer-sessions-btn').addEventListener('click', async () => {
+  if (!timerSessions.length) {
+    setStatus('all-data-status', 'There are no timer sessions to clear.');
+    return;
+  }
+  const confirmed = await confirmBulkDeletion(`Delete all ${timerSessions.length} timer sessions? Study-time totals, charts, and course progress will be recalculated.`);
+  if (!confirmed) return;
+  const previous = timerSessions;
+  timerSessions = [];
+  if (!await idbSet('timerSessions', timerSessions)) {
+    timerSessions = previous;
+    setStatus('all-data-status', 'Timer sessions could not be cleared. Your data was restored.');
+    return;
+  }
+  renderTimer();
+  renderEverything();
+  setStatus('all-data-status', 'Timer sessions cleared.');
+});
+$('tutor-history-dialog').addEventListener('click', async event => {
+  const openButton = event.target.closest('[data-open-conversation]');
+  const renameButton = event.target.closest('[data-rename-conversation]');
+  const deleteButton = event.target.closest('[data-delete-conversation]');
+  if (openButton) {
+    const conversation = tutorConversations.find(item => item.id === openButton.dataset.openConversation);
+    if (!conversation) return;
+    await persistTutorConversations();
+    activeConversationId = conversation.id;
+    chatHistory = conversation.messages;
+    localStorage.setItem('studybuddy-active-conversation', activeConversationId);
+    chatAtLatest = true;
+    renderTutorChatPage();
+    renderTutorOverview();
+    $('tutor-history-dialog').close();
+    return;
+  }
+  if (renameButton) {
+    const conversation = tutorConversations.find(item => item.id === renameButton.dataset.renameConversation);
+    if (!conversation) return;
+    renameTutorConversation(conversation);
+    return;
+  }
+  if (deleteButton) {
+    const conversation = tutorConversations.find(item => item.id === deleteButton.dataset.deleteConversation);
+    if (!conversation) return;
+    const confirmed = await confirmDeletion({
+      title: `Delete conversation "${conversation.title || 'New chat'}"?`,
+      description: `This removes the conversation and its ${conversation.messages.length} messages from this browser.`,
+      affected: 'Saved notes and flashcards created from replies are not changed.'
+    });
+    if (!confirmed) return;
+    if (activeConversationId === conversation.id) {
+      activeConversationId = tutorConversations.find(item => item.id !== conversation.id)?.id || null;
+      chatHistory = tutorConversations.find(item => item.id === activeConversationId)?.messages || [];
+    }
+    localStorage.setItem('studybuddy-active-conversation', activeConversationId || '');
+    await softDeleteRecords([{ collection: 'tutorConversations', ids: [conversation.id] }], 'Conversation deleted.');
+    if (!activeConversationId) createTutorConversation();
+    renderTutorChatPage();
+    renderTutorOverview();
+    renderTutorHistory();
+  }
+});
 $('reply-dialog-close').addEventListener('click', () => $('reply-dialog').close());
 $('code-dialog-close').addEventListener('click', () => $('code-dialog').close());
 $('quiz-mistakes-close').addEventListener('click', () => $('quiz-mistakes-dialog').close());
-$('clear-chat-btn').addEventListener('click', () => {
-  chatHistory = [];
-  chatPageIndex = 0;
-  historyPageIndex = 0;
-  renderTutorChatPage();
-  renderTutorOverview();
-});
 $('tutor-study-scope').addEventListener('change', () => {
   $('tutor-study-scope').setAttribute('aria-label', 'Study material scope');
 });
@@ -3458,20 +5339,64 @@ $('timer-reset-btn').addEventListener('click', () => {
 }));
 
 async function init() {
+  initializeCustomControls();
   documents = await idbGet('documents') || [];
-  cards = await idbGet('cards') || [];
+  cards = [];
   notes = await idbGet('notes') || [];
   quizResults = await idbGet('quizResults') || [];
   timerSessions = await idbGet('timerSessions') || [];
+  if (timerSessions.some(session => !session.id)) {
+    timerSessions = timerSessions.map(session => session.id ? session : { ...session, id: uid() });
+    await idbSet('timerSessions', timerSessions);
+  }
   classes = await idbGet('classes') || [];
   assignments = await idbGet('assignments') || [];
+  tutorConversations = await idbGet('tutorConversations') || [];
+  let migratedTutorTimestamps = false;
+  tutorConversations.forEach(conversation => {
+    if (!Array.isArray(conversation.messages)) {
+      conversation.messages = [];
+      migratedTutorTimestamps = true;
+    }
+    const messages = conversation.messages;
+    messages.forEach((message, index) => {
+      if (message.timestamp != null && Number.isFinite(Number(message.timestamp))) return;
+      message.timestamp = Math.max(0, Number(conversation.updatedAt) - (messages.length - index) * 60000) || Date.now();
+      migratedTutorTimestamps = true;
+    });
+  });
+  if (migratedTutorTimestamps) await idbSet('tutorConversations', tutorConversations);
+  deletedRecords = (await idbGet('deletedRecords') || []).filter(snapshot => snapshot.expiresAt > Date.now());
+  await idbSet('deletedRecords', deletedRecords);
+  const savedConversationId = localStorage.getItem('studybuddy-active-conversation');
+  activeConversationId = tutorConversations.some(item => item.id === savedConversationId)
+    ? savedConversationId
+    : tutorConversations.at(-1)?.id || null;
+  chatHistory = tutorConversations.find(item => item.id === activeConversationId)?.messages || [];
+  if (!activeConversationId) {
+    const conversation = { id: uid(), title: 'New chat', messages: [], createdAt: Date.now(), updatedAt: Date.now() };
+    tutorConversations.push(conversation);
+    activeConversationId = conversation.id;
+    chatHistory = conversation.messages;
+    localStorage.setItem('studybuddy-active-conversation', activeConversationId);
+    await persistTutorConversations();
+  }
   if (await idbGet(NOTE_CLEANUP_KEY) !== 1) {
     notes = notes.map(note => ({ ...note, body: cleanNoteBody(note.body) }));
     await idbSet('notes', notes);
     await idbSet(NOTE_CLEANUP_KEY, 1);
   }
+  await loadFlashcardsFromServer();
   renderTimer();
   renderEverything();
+  renderFlashcardSourceOptions();
+  setFlashcardsView(sessionStorage.getItem(FLASHCARD_VIEW_KEY) || 'cards');
+  renderTutorChatPage();
+  deletedRecords.forEach(snapshot => {
+    const remaining = Math.max(0, snapshot.expiresAt - Date.now());
+    undoTimers.set(snapshot.id, setTimeout(() => purgeUndoSnapshot(snapshot.id), remaining));
+  });
+  if (deletedRecords.length) showUndoToast(deletedRecords.at(-1), 'An item was deleted.');
   if (documents[0]) previewDocument(documents[0].id);
   syncReminderControls();
   if (reminderIntervalId) clearInterval(reminderIntervalId);
