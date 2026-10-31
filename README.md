@@ -2,11 +2,15 @@
 
 Margin is a local-first study web app with documents, AI notes, AI flashcards, quiz generation, a focus timer, manual notes, and progress tracking.
 
+## Navigation and appearance
+
+The app uses a responsive sidebar for its study pages, with a mobile menu on smaller screens. Choose Light, Dark, or System in Settings; the top-bar theme button quickly switches between light and dark. Theme choice is saved in this browser.
+
 ## Setup
 
 ### Frontend
 
-Open `index.html` in a modern browser. Keep `styles.css` and `app.js` alongside it: the stylesheet contains the app's presentation, and the JavaScript file contains its existing app behavior and integrations. The app stores local data in IndexedDB, so documents, notes, flashcards, quiz results, and timer sessions survive page reloads in the same browser.
+Open `index.html` in a modern browser. Keep `styles.css` and `app.js` alongside it: the stylesheet contains the app's presentation, and the JavaScript file contains its existing app behavior and integrations. The app stores local data in IndexedDB, so documents, classes, assignments, notes, flashcards, quiz results, and timer sessions survive page reloads in the same browser.
 
 PDF parsing uses pdf.js from a CDN. TXT files work with the browser File API.
 
@@ -36,10 +40,13 @@ The document generation routes expect a document payload with extracted text and
 
 - Documents: upload PDF/TXT, extract text, store raw file plus text, organize by course and unit, favorite, search, sort, track reading progress.
 - AI Notes: generate structured notes from a document, visually tag them as AI generated, and edit them afterward.
-- AI Flashcards: generate editable basic, definition, and fill-in-the-blank cards from documents.
-- Quiz: generate and grade multiple choice, true/false, fill-in-the-blank, and short-answer questions with explanations.
+- AI Flashcards: generate source-grounded basic, definition, and fill-in-the-blank cards; review and edit generated cards before studying.
+- Quiz: generate and grade distinct multiple choice, true/false, fill-in-the-blank, and short-answer questions with explanations. Invalid or duplicate generated items are discarded.
+- Classes and calendar: save course details and recurring weekly meeting times, create and track assignments, and view meetings and due dates by week.
+- Assignment reminders: opt into browser notifications and set a reminder time per assignment. Notifications are local to this browser and require StudyBuddy to remain open.
 - Timer: Pomodoro-style work/break timer that logs completed work sessions against a course/unit.
-- Progress: dashboard for study time, completed documents, quiz accuracy, flashcard mastery, sessions this week, and course/unit breakdowns.
+- Dashboard: see today's recurring classes, assignments due soon, focus time, completed assignments, and flashcards to review, with a shortcut to continue reading or study.
+- Progress: review study time, completed documents, quiz accuracy, flashcard mastery, sessions this week, and course/unit breakdowns.
 
 ## Deployment Note
 
@@ -51,4 +58,6 @@ Add these environment variables in Render's dashboard: `OLLAMA_API_KEY`, `OLLAMA
 
 All study data is stored locally in the browser through IndexedDB. There is no backend database in this MVP.
 
-Use export/import for flashcards and notes if you want a portable backup.
+Open Settings to export all documents, classes, assignments, flashcards, notes, quiz history, and timer sessions to a JSON backup, or import a backup. Imports merge by record ID and keep existing records when IDs collide. Backups created before classes and assignments were added remain supported. Tutor access tokens and notification permissions are not included.
+
+Flashcards and notes also retain their individual export/import controls.

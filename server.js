@@ -183,15 +183,24 @@ app.post('/api/generate-flashcards', async (req, res) => {
     if (!payload || Array.isArray(payload) || typeof payload !== 'object' || !Array.isArray(payload.cards)) {
       throw malformedJsonError();
     }
-    const cards = payload.cards;
+    const seen = new Set();
+    const cards = payload.cards.reduce((valid, card) => {
+      if (!card || typeof card !== 'object' || Array.isArray(card)
+        || typeof card.front !== 'string' || typeof card.back !== 'string') return valid;
+      const front = card.front.trim().slice(0, 500);
+      const back = card.back.trim().slice(0, 1000);
+      const key = `${front.toLowerCase().replace(/\s+/g, ' ')}|${back.toLowerCase().replace(/\s+/g, ' ')}`;
+      if (!front || !back || seen.has(key)) return valid;
+      seen.add(key);
+      valid.push({
+        format: ['basic', 'definition', 'fill_blank'].includes(card.format) ? card.format : 'basic',
+        front,
+        back
+      });
+      return valid;
+    }, []);
     res.json({
-      cards: cards
-        .filter(card => card && typeof card === 'object' && card.front && card.back)
-        .map(card => ({
-          format: ['basic', 'definition', 'fill_blank'].includes(card.format) ? card.format : 'basic',
-          front: String(card.front).slice(0, 500),
-          back: String(card.back).slice(0, 1000)
-        }))
+      cards
     });
   } catch (error) {
     sendAiError(res, error, 'Could not generate flashcards. Please try again.');
@@ -207,17 +216,47 @@ app.post('/api/generate-quiz', async (req, res) => {
     if (!payload || Array.isArray(payload) || typeof payload !== 'object' || !Array.isArray(payload.questions)) {
       throw malformedJsonError();
     }
-    const questions = payload.questions;
+    const seen = new Set();
+    const questions = payload.questions.reduce((valid, question) => {
+      if (!question || typeof question !== 'object' || Array.isArray(question)
+        || typeof question.question !== 'string') return valid;
+      const text = question.question.trim().slice(0, 800);
+      const key = text.toLowerCase().replace(/\s+/g, ' ');
+      if (!text || seen.has(key)) return valid;
+      const type = ['multiple_choice', 'true_false', 'fill_blank', 'short_answer'].includes(question.type)
+        ? question.type
+        : 'short_answer';
+      const rawAnswer = question.correctAnswer || question.answer;
+      if (typeof rawAnswer !== 'string' || !rawAnswer.trim()) return valid;
+      let options;
+      let correctAnswer = rawAnswer.trim().slice(0, 500);
+      if (type === 'multiple_choice') {
+        options = Array.isArray(question.options)
+          ? [...new Set(question.options.filter(option => typeof option === 'string').map(option => option.trim()).filter(Boolean))]
+            .slice(0, 6)
+            .map(option => option.slice(0, 250))
+          : [];
+        if (options.length < 2) return valid;
+        const matchingOption = options.find(option => option.toLowerCase().replace(/\s+/g, ' ') === correctAnswer.toLowerCase().replace(/\s+/g, ' '));
+        if (!matchingOption) return valid;
+        correctAnswer = matchingOption;
+      } else if (type === 'true_false') {
+        if (!['true', 'false'].includes(correctAnswer.toLowerCase())) return valid;
+        options = ['True', 'False'];
+        correctAnswer = correctAnswer.toLowerCase() === 'true' ? 'True' : 'False';
+      }
+      seen.add(key);
+      valid.push({
+        type,
+        question: text,
+        ...(options ? { options } : {}),
+        correctAnswer,
+        explanation: typeof question.explanation === 'string' ? question.explanation.trim().slice(0, 800) : ''
+      });
+      return valid;
+    }, []);
     res.json({
-      questions: questions
-        .filter(q => q && typeof q === 'object' && q.question && (q.correctAnswer || q.answer))
-        .map(q => ({
-          type: ['multiple_choice', 'true_false', 'fill_blank', 'short_answer'].includes(q.type) ? q.type : 'multiple_choice',
-          question: String(q.question).slice(0, 800),
-          options: Array.isArray(q.options) ? q.options.map(option => String(option).slice(0, 250)).slice(0, 6) : undefined,
-          correctAnswer: String(q.correctAnswer || q.answer).slice(0, 500),
-          explanation: String(q.explanation || '').slice(0, 800)
-        }))
+      questions
     });
   } catch (error) {
     sendAiError(res, error, 'Could not generate a quiz. Please try again.');
@@ -228,6 +267,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Margin server running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Margin server running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;

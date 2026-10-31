@@ -5,75 +5,254 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StudyBuddy - your study desk</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link
-    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
-    rel="stylesheet">
+  <script>
+    (() => {
+      const theme = localStorage.getItem('studybuddy-theme') || 'system';
+      document.documentElement.dataset.theme = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
+    })();
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-  <div class="app">
-    <div class="masthead">
-      <div>
-        <h1>StudyBuddy</h1>
-        <p>One desk for documents, notes, flashcards, quizzes, focus, and progress.</p>
-      </div>
-      <span class="offline-pill" id="net-pill">local-first: documents, cards, notes, quizzes, and progress save in this
-        browser</span>
-    </div>
-
-    <div class="tabs" role="tablist">
-      <button class="tab active" data-tab="documents" role="tab" aria-selected="true"><svg viewBox="0 0 24 24"
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Main sidebar">
+      <a class="brand" href="#" aria-label="StudyBuddy home">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>StudyBuddy</span>
+      </a>
+      <p class="sidebar-label">YOUR WORKSPACE</p>
+      <nav class="tabs" aria-label="Main navigation">
+        <button class="tab" data-tab="dashboard" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="8" height="8" rx="2" /><rect x="13" y="3" width="8" height="5" rx="2" /><rect x="13" y="10" width="8" height="11" rx="2" /><rect x="3" y="13" width="8" height="8" rx="2" />
+        </svg><span>Dashboard</span></button>
+        <button class="tab" data-tab="calendar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" />
+        </svg><span>Calendar</span></button>
+        <button class="tab" data-tab="classes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        </svg><span>Classes</span></button>
+        <button class="tab" data-tab="documents"><svg viewBox="0 0 24 24"
           fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <path d="M14 2v6h6" />
           <path d="M8 13h8M8 17h5" />
-        </svg>Documents</button>
-      <button class="tab" data-tab="tutor" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+        </svg><span>Documents</span></button>
+        <button class="tab" data-tab="tutor"><svg viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>Tutor</button>
-      <button class="tab" data-tab="cards" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+        </svg><span>Tutor</span></button>
+        <button class="tab" data-tab="cards"><svg viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2">
           <rect x="3" y="6" width="14" height="12" rx="2" />
           <path d="M7 3h14v12" />
-        </svg>Flashcards</button>
-      <button class="tab" data-tab="quiz" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+        </svg><span>Flashcards</span></button>
+        <button class="tab" data-tab="quiz"><svg viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2">
           <path d="M9 11l3 3L22 4" />
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-        </svg>Quiz</button>
-      <button class="tab" data-tab="timer" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+        </svg><span>Quiz</span></button>
+        <button class="tab" data-tab="timer"><svg viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="13" r="8" />
           <path d="M12 9v4l3 2M9 2h6" />
-        </svg>Timer</button>
-      <button class="tab" data-tab="notes" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+        </svg><span>Timer</span></button>
+        <button class="tab" data-tab="notes"><svg viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2">
           <path d="M4 4h16v16H4z" />
           <path d="M8 8h8M8 12h8M8 16h5" />
-        </svg>Notes</button>
-      <button class="tab" data-tab="progress" role="tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none"
+        </svg><span>Notes</span></button>
+        <button class="tab" data-tab="progress"><svg viewBox="0 0 24 24" fill="none"
           stroke="currentColor" stroke-width="2">
           <path d="M3 3v18h18" />
           <path d="M7 15l4-4 3 3 5-7" />
-        </svg>Progress</button>
-    </div>
+        </svg><span>Progress</span></button>
+        <button class="tab" data-tab="settings"><svg viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 1.7-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V20h-2.4v-.2a1.7 1.7 0 0 0-1.03-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-1.7-1.7.06-.06A1.7 1.7 0 0 0 8.4 15a1.7 1.7 0 0 0-1.56-1.03H6v-2.4h.84A1.7 1.7 0 0 0 8.4 10a1.7 1.7 0 0 0-.34-1.88L8 8.06l1.7-1.7.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 12.67 5.2V5h2.4v.2a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 1.7 1.7-.06.06A1.7 1.7 0 0 0 19.34 10a1.7 1.7 0 0 0 1.56 1.03h.1v2.4h-.1A1.7 1.7 0 0 0 19.4 15z" />
+        </svg><span>Settings</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <span class="sidebar-status-dot" aria-hidden="true"></span>
+        <span>Saved on this device</span>
+      </div>
+    </aside>
+    <button class="sidebar-overlay" id="sidebar-overlay" type="button" aria-label="Close navigation" aria-hidden="true" tabindex="-1"></button>
 
-    <section class="panel" id="panel-documents">
+    <div class="app-main">
+      <header class="topbar">
+        <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+        <div class="topbar-context">
+          <span class="topbar-kicker">YOUR STUDY SPACE</span>
+          <span class="offline-pill" id="net-pill">Your work saves in this browser</span>
+        </div>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5z" /></svg>
+          <span>Theme</span>
+        </button>
+      </header>
+
+      <main class="app" id="main-content">
+        <header class="page-header">
+          <div>
+            <p class="page-eyebrow">STUDY DESK</p>
+            <h1 id="page-title">Dashboard</h1>
+            <p class="page-date" id="page-date"></p>
+          </div>
+        </header>
+        <div class="page-layout" id="page-layout">
+          <div class="page-content">
+            <section class="panel" id="panel-dashboard">
+              <div class="dashboard-hero">
+                <span class="hero-kicker">YOUR STUDY DAY</span>
+                <h2 class="panel-title" id="dashboard-greeting">Welcome back</h2>
+                <p class="panel-sub" id="dashboard-summary">A clear view of your schedule, deadlines, and recent progress.</p>
+              </div>
+              <div class="dashboard-stat-grid">
+                <article class="dashboard-stat"><span>Focus today</span><strong id="dashboard-focus-time">0 min</strong></article>
+                <article class="dashboard-stat"><span>Assignments due soon</span><strong id="dashboard-due-count">0</strong></article>
+                <article class="dashboard-stat"><span>Assignments completed</span><strong id="dashboard-completed-count">0</strong></article>
+                <article class="dashboard-stat"><span>Cards to review</span><strong id="dashboard-review-count">0</strong></article>
+              </div>
+              <div class="dashboard-overview-grid">
+                <section class="dashboard-card">
+                  <div class="dashboard-card-heading">
+                    <h2>Today's schedule</h2>
+                    <button class="text-btn" type="button" data-go="calendar">Open calendar</button>
+                  </div>
+                  <div class="dashboard-item-list" id="dashboard-today-schedule"></div>
+                </section>
+                <section class="dashboard-card">
+                  <div class="dashboard-card-heading">
+                    <h2>Coming up</h2>
+                    <button class="text-btn" type="button" data-go="classes">View assignments</button>
+                  </div>
+                  <div class="dashboard-item-list" id="dashboard-upcoming-assignments"></div>
+                </section>
+              </div>
+              <section class="dashboard-continue" id="dashboard-continue">
+                <div>
+                  <span class="hero-kicker">PICK UP WHERE YOU LEFT OFF</span>
+                  <h2 id="dashboard-continue-title">Ready for your next study session?</h2>
+                  <p id="dashboard-continue-detail">Choose a document, review flashcards, or start a focus session.</p>
+                </div>
+                <button class="btn btn-primary" type="button" id="dashboard-continue-button" data-go="timer">Start focus session</button>
+              </section>
+              <div class="quick-link-grid">
+                <button class="quick-link-card" data-go="documents"><span class="quick-link-icon">01</span><strong>Organize your materials</strong><span>Upload readings and keep them close.</span></button>
+                <button class="quick-link-card" data-go="cards"><span class="quick-link-icon">02</span><strong>Review flashcards</strong><span>Practice a deck at your own pace.</span></button>
+                <button class="quick-link-card" data-go="timer"><span class="quick-link-icon">03</span><strong>Start a focus session</strong><span>Make time for one small win.</span></button>
+              </div>
+            </section>
+            <section class="panel hidden" id="panel-calendar">
+              <p class="panel-title">Calendar</p>
+              <p class="panel-sub">See your weekly class schedule and assignment deadlines in one place.</p>
+              <div class="calendar-toolbar">
+                <div class="row">
+                  <button class="btn" id="calendar-prev-week" type="button" aria-label="Previous week">←</button>
+                  <button class="btn" id="calendar-this-week" type="button">This week</button>
+                  <button class="btn" id="calendar-next-week" type="button" aria-label="Next week">→</button>
+                  <strong class="calendar-range" id="calendar-range" aria-live="polite"></strong>
+                </div>
+                <button class="btn btn-primary" id="calendar-add-assignment" type="button">Add assignment</button>
+              </div>
+              <label class="reminder-setting">
+                <input type="checkbox" id="calendar-reminders-enabled">
+                <span><strong>Assignment reminders</strong><small>Show browser notifications for assignments with a reminder time. StudyBuddy must be open.</small></span>
+              </label>
+              <p class="status" id="calendar-reminder-status" role="status" aria-live="polite"></p>
+              <div class="calendar-week" id="calendar-week" aria-label="Weekly schedule"></div>
+              <section class="upcoming-section">
+                <h2 class="settings-heading">Upcoming assignments</h2>
+                <div class="item-list" id="calendar-assignment-list"></div>
+              </section>
+            </section>
+            <section class="panel hidden" id="panel-classes">
+              <p class="panel-title">Classes</p>
+              <p class="panel-sub">Keep course details, weekly meeting times, and assignment deadlines together. Your information stays in this browser.</p>
+              <div class="toolbar">
+                <button class="btn btn-primary" id="add-class-btn" type="button">Add class</button>
+                <button class="btn" id="classes-add-assignment" type="button">Add assignment</button>
+              </div>
+              <div class="item-list class-list" id="class-list"></div>
+              <div class="empty-state hidden" id="classes-empty">No classes yet. Add a class to organize your schedule.</div>
+              <section class="upcoming-section">
+                <h2 class="settings-heading">Assignments</h2>
+                <div class="item-list" id="classes-assignment-list"></div>
+                <div class="empty-state hidden" id="assignments-empty">No assignments yet. Add one to track a due date.</div>
+              </section>
+              <dialog class="editor-dialog" id="class-dialog" aria-labelledby="class-dialog-title">
+                <form id="class-form">
+                  <div class="dialog-header">
+                    <h2 id="class-dialog-title">Add a class</h2>
+                    <button class="icon-btn dialog-close" id="close-class-dialog" type="button" aria-label="Close dialog">×</button>
+                  </div>
+                  <div class="form-grid">
+                    <label class="wide">Class name<input type="text" id="class-name" maxlength="120" required></label>
+                    <label>Instructor (optional)<input type="text" id="class-instructor" maxlength="120"></label>
+                    <label>Room or location (optional)<input type="text" id="class-location" maxlength="120"></label>
+                    <fieldset class="wide weekday-picker">
+                      <legend>Weekly meeting days</legend>
+                      <label><input type="checkbox" name="class-meeting-day" value="1"> Mon</label>
+                      <label><input type="checkbox" name="class-meeting-day" value="2"> Tue</label>
+                      <label><input type="checkbox" name="class-meeting-day" value="3"> Wed</label>
+                      <label><input type="checkbox" name="class-meeting-day" value="4"> Thu</label>
+                      <label><input type="checkbox" name="class-meeting-day" value="5"> Fri</label>
+                      <label><input type="checkbox" name="class-meeting-day" value="6"> Sat</label>
+                      <label><input type="checkbox" name="class-meeting-day" value="0"> Sun</label>
+                    </fieldset>
+                    <label>Starts<input type="time" id="class-start-time"></label>
+                    <label>Ends<input type="time" id="class-end-time"></label>
+                  </div>
+                  <div class="row dialog-actions">
+                    <button class="btn btn-primary" id="save-class-btn" type="submit">Save class</button>
+                    <button class="btn" id="cancel-class-dialog" type="button">Cancel</button>
+                  </div>
+                </form>
+              </dialog>
+              <dialog class="editor-dialog" id="assignment-dialog" aria-labelledby="assignment-dialog-title">
+                <form id="assignment-form">
+                  <div class="dialog-header">
+                    <h2 id="assignment-dialog-title">Add an assignment</h2>
+                    <button class="icon-btn dialog-close" id="close-assignment-dialog" type="button" aria-label="Close dialog">×</button>
+                  </div>
+                  <div class="form-grid">
+                    <label class="wide">Assignment name<input type="text" id="assignment-title" maxlength="160" required></label>
+                    <label>Class<select id="assignment-class"></select></label>
+                    <label>Due date and time<input type="datetime-local" id="assignment-due" required></label>
+                    <label class="wide">Details (optional)<textarea id="assignment-details" maxlength="2000" rows="3"></textarea></label>
+                    <label class="wide">Remind me at (optional)<input type="datetime-local" id="assignment-reminder"></label>
+                  </div>
+                  <div class="row dialog-actions">
+                    <button class="btn btn-primary" id="save-assignment-btn" type="submit">Save assignment</button>
+                    <button class="btn" id="cancel-assignment-dialog" type="button">Cancel</button>
+                  </div>
+                </form>
+              </dialog>
+            </section>
+    <section class="panel hidden" id="panel-documents">
       <p class="panel-title">Documents</p>
       <p class="panel-sub">Upload PDF or TXT files, organize them by course and unit, and use extracted text for AI
         notes, flashcards, and quizzes.</p>
       <div class="split">
         <div>
-          <div class="form-grid">
-            <input type="file" id="doc-file" class="wide" accept=".pdf,.txt,application/pdf,text/plain">
+          <label class="upload-dropzone" id="upload-dropzone" for="doc-file">
+            <input type="file" id="doc-file" accept=".pdf,.txt,application/pdf,text/plain">
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <strong>Drop a PDF or TXT here</strong>
+            <span>or <span class="upload-browse">browse files</span></span>
+            <span class="hint">Your file stays on this device.</span>
+            <span class="upload-file-name hidden" id="upload-file-name"></span>
+          </label>
+          <div class="form-grid document-metadata hidden" id="document-metadata">
             <input type="text" id="doc-title" placeholder="Title (optional)">
             <input type="text" id="doc-course" list="course-list" placeholder="Course e.g. Data Structures">
             <input type="text" id="doc-unit" list="unit-list" placeholder="Unit e.g. Trees">
-            <select id="doc-favorite">
+            <select id="doc-favorite" aria-label="Favorite status">
               <option value="">Not favorite</option>
               <option value="yes">Favorite</option>
             </select>
@@ -101,6 +280,10 @@
           <div class="row">
             <select id="active-doc-select" class="doc-select"></select>
             <button class="btn" id="open-doc-btn">Open</button>
+          </div>
+          <div class="preview-toolbar">
+            <span class="preview-label">READING PREVIEW</span>
+            <button type="button" class="text-toggle" id="original-text-toggle" aria-pressed="false" disabled>View original text</button>
           </div>
           <div class="doc-preview" id="doc-preview">Select a document to preview extracted text.</div>
           <label class="hint">Reading progress
@@ -137,9 +320,21 @@
       <div class="toolbar">
         <select id="flashcard-doc-select"></select>
         <button class="btn btn-primary" id="generate-cards-btn">Generate from document</button>
-        <span class="status" id="cards-ai-status"></span>
+        <span class="status" id="cards-ai-status" role="status" aria-live="polite"></span>
       </div>
-      <div class="form-grid">
+      <div class="toolbar flashcard-filters">
+        <select id="card-unit-filter" aria-label="Filter by unit"><option value="all">All units</option></select>
+        <select id="card-mastery-filter" aria-label="Filter by mastery">
+          <option value="all">Any mastery</option><option value="learning">Still learning</option><option value="mastered">Mastered</option>
+        </select>
+        <button class="btn btn-primary" id="open-add-card-btn" type="button">Add card</button>
+      </div>
+      <dialog class="editor-dialog" id="card-dialog" aria-labelledby="card-dialog-title">
+        <div class="dialog-header">
+          <h2 id="card-dialog-title">Add a flashcard</h2>
+          <button type="button" class="icon-btn dialog-close" id="close-card-dialog" aria-label="Close dialog">×</button>
+        </div>
+        <div class="form-grid">
         <select id="card-format">
           <option value="basic">Basic Q&A</option>
           <option value="definition">Definition</option>
@@ -147,14 +342,18 @@
         </select>
         <input type="text" id="card-subject" list="subject-list" placeholder="Course or subject">
         <input type="text" id="card-unit" list="unit-list" placeholder="Unit">
-        <input type="text" id="card-front" placeholder="Front - question, term, or prompt">
-        <textarea id="card-back" class="wide" placeholder="Back - answer or definition"></textarea>
+        <input type="text" id="card-front" placeholder="Front - question, term, or prompt" required>
+        <textarea id="card-back" class="wide" placeholder="Back - answer or definition" required></textarea>
         <datalist id="subject-list"></datalist>
-      </div>
+        </div>
+        <div class="row dialog-actions">
+          <button class="btn btn-primary" id="add-card-btn">Save card</button>
+          <button class="btn" id="cancel-card-dialog" type="button">Cancel</button>
+        </div>
+      </dialog>
       <div class="row card-actions-row">
-        <button class="btn btn-primary" id="add-card-btn">Add card</button>
-        <button class="btn" id="export-cards-btn">Export deck (.json)</button>
-        <button class="btn" id="import-cards-btn">Import deck (.json)</button>
+        <button class="btn" id="export-cards-btn">Export deck</button>
+        <button class="btn" id="import-cards-btn">Import deck</button>
         <input type="file" id="import-cards-file" accept=".json" class="hidden">
       </div>
       <div class="deck-bar" id="deck-bar"></div>
@@ -184,7 +383,12 @@
       <div class="toolbar">
         <select id="quiz-doc-select"></select>
         <button class="btn btn-primary" id="generate-quiz-btn">Generate quiz</button>
-        <span class="status" id="quiz-status"></span>
+        <span class="status" id="quiz-status" role="status" aria-live="polite"></span>
+      </div>
+      <div class="quiz-view-toolbar hidden" id="quiz-view-toolbar">
+        <span class="quiz-mode-label">Quiz mode</span>
+        <button class="btn btn-sm active" id="quiz-mode-one" type="button" aria-pressed="true">One at a time</button>
+        <button class="btn btn-sm" id="quiz-mode-all" type="button" aria-pressed="false">Show all</button>
       </div>
       <div id="quiz-area" class="stack"></div>
       <div class="empty-state" id="quiz-empty">Choose a document and generate a quiz.</div>
@@ -199,6 +403,7 @@
         <select id="timer-unit"></select>
       </div>
       <div class="timer-wrap">
+        <div class="timer-session-count"><strong id="timer-session-count">0</strong><span>focus sessions today</span></div>
         <div class="ring-wrap">
           <svg width="220" height="220" viewBox="0 0 220 220">
             <circle cx="110" cy="110" r="98" fill="none" stroke="var(--paper-grid)" stroke-width="10" />
@@ -219,6 +424,11 @@
           <label>Break (min)<input type="number" id="break-min" value="5" min="1" max="60"></label>
           <label>Long break (min)<input type="number" id="long-min" value="15" min="1" max="60"></label>
         </div>
+        <div class="timer-alert-settings">
+          <label><input type="checkbox" id="timer-sound-enabled" checked> Play a sound when a session ends</label>
+          <label><input type="checkbox" id="timer-notification-enabled"> Show a browser notification</label>
+        </div>
+        <p class="status" id="timer-alert-status" role="status" aria-live="polite"></p>
       </div>
     </section>
 
@@ -228,27 +438,41 @@
       <div class="toolbar">
         <select id="notes-doc-select"></select>
         <button class="btn btn-primary" id="generate-notes-btn">Generate from document</button>
-        <span class="status" id="notes-ai-status"></span>
+        <span class="status" id="notes-ai-status" role="status" aria-live="polite"></span>
       </div>
       <div class="toolbar">
         <input type="text" id="notes-search" placeholder="Search notes">
         <button class="btn btn-primary" id="new-note-btn">New note</button>
-        <button class="btn" id="export-notes-btn">Export (.json)</button>
-        <button class="btn" id="import-notes-btn">Import (.json)</button>
+        <button class="btn" id="export-notes-btn">Export notes</button>
+        <button class="btn" id="import-notes-btn">Import notes</button>
         <input type="file" id="import-notes-file" accept=".json" class="hidden">
       </div>
-      <div class="form-grid hidden" id="note-form">
-        <input type="text" id="note-title" placeholder="Title">
-        <input type="text" id="note-tag" list="course-list" placeholder="Course or subject">
-        <input type="text" id="note-unit" list="unit-list" placeholder="Unit">
-        <textarea id="note-body" class="wide" placeholder="Write your note..."></textarea>
-        <div class="row wide">
-          <button class="btn btn-primary" id="save-note-btn">Save note</button>
-          <button class="btn" id="cancel-note-btn">Cancel</button>
+      <div class="notes-workspace">
+        <div class="notes-list-pane">
+          <div class="note-grid" id="note-grid"></div>
+          <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" or generate one from a document.</div>
         </div>
-      </div>
-      <div class="note-grid" id="note-grid"></div>
-      <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" or generate one from a document.
+        <section class="notes-editor-pane" aria-label="Note editor and preview">
+          <div class="note-editor-empty" id="note-editor-empty">
+            <span aria-hidden="true">✎</span>
+            <strong>Choose a note to read or edit</strong>
+            <span>Your formatted preview will appear here.</span>
+          </div>
+          <div class="form-grid hidden" id="note-form">
+            <input type="text" id="note-title" placeholder="Title">
+            <div class="form-grid note-tags">
+              <input type="text" id="note-tag" list="course-list" placeholder="Course or subject">
+              <input type="text" id="note-unit" list="unit-list" placeholder="Unit">
+            </div>
+            <textarea id="note-body" class="wide" placeholder="Write your note..."></textarea>
+            <div class="row wide">
+              <button class="btn btn-primary" id="save-note-btn">Save note</button>
+              <button class="btn" id="cancel-note-btn">Close editor</button>
+            </div>
+            <div class="note-preview-heading wide"><strong>Preview</strong><span>Formatted Markdown</span></div>
+            <div class="note-preview markdown-body wide" id="note-preview"></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -262,9 +486,23 @@
         <div class="stat"><b id="stat-quiz">0%</b><span>quiz accuracy</span></div>
         <div class="stat"><b id="stat-cards">0%</b><span>flashcard mastery</span></div>
       </div>
+      <div class="progress-charts">
+        <section class="chart-card">
+          <div class="chart-heading"><h3>Study time</h3><span>Last 7 days</span></div>
+          <div id="study-time-chart" class="chart-area" role="img" aria-label="Weekly study time chart"></div>
+        </section>
+        <section class="chart-card">
+          <div class="chart-heading"><h3>Quiz accuracy</h3><span>Recent attempts</span></div>
+          <div id="quiz-accuracy-chart" class="chart-area" role="img" aria-label="Recent quiz accuracy chart"></div>
+        </section>
+        <section class="chart-card mastery-chart-card">
+          <div class="chart-heading"><h3>Flashcard mastery</h3><span>All cards</span></div>
+          <div id="flashcard-mastery-chart" class="chart-area" role="img" aria-label="Flashcard mastery chart"></div>
+        </section>
+      </div>
       <div class="split">
         <div>
-          <h3 class="panel-title sub-panel-title">By course and unit</h3>
+          <h3 class="panel-title sub-panel-title">By course</h3>
           <div class="item-list" id="progress-list"></div>
         </div>
         <div>
@@ -274,8 +512,63 @@
       </div>
     </section>
 
-    <p class="footnote">Documents, notes, flashcards, quiz history, and timer sessions are stored in IndexedDB on this
+    <section class="panel hidden" id="panel-settings">
+      <p class="panel-title">Settings</p>
+      <p class="panel-sub">Back up or restore the study data saved in this browser.</p>
+      <div class="row">
+        <button class="btn btn-primary" id="export-all-data-btn" disabled>Export all data</button>
+        <button class="btn" id="import-all-data-btn" disabled>Import all data</button>
+        <input type="file" id="import-all-data-file" accept=".json,application/json" class="hidden">
+      </div>
+      <p class="hint">Imports merge with data already in this browser; existing records are kept when IDs match. Tutor access tokens are not included in backups.</p>
+      <p class="status" id="all-data-status" role="status" aria-live="polite"></p>
+      <div class="settings-divider"></div>
+      <h2 class="settings-heading">Appearance</h2>
+      <p class="panel-sub">Choose a theme. System follows your device preference and updates when it changes.</p>
+      <label class="theme-setting" for="theme-select">
+        <span><strong>Color theme</strong><small>Light, dark, or match your device</small></span>
+        <select id="theme-select" aria-label="Color theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+    </section>
+          </div>
+          <aside class="tutor-aside" id="tutor-aside" aria-label="Tutor study overview">
+            <section class="tutor-side-card tutor-profile">
+              <span class="tutor-avatar" aria-hidden="true">S</span>
+              <div><strong>Study overview</strong><span>Your learning, in one place</span></div>
+            </section>
+            <section class="tutor-side-card">
+              <p class="aside-eyebrow">TODAY'S FOCUS</p>
+              <h2>One question at a time.</h2>
+              <p>Ask for a clear explanation, a worked example, or a fresh way to think about a tricky idea.</p>
+            </section>
+            <section class="tutor-side-card">
+              <p class="aside-eyebrow">YOUR PROGRESS</p>
+              <div class="aside-stat"><span>Documents</span><strong id="tutor-doc-count">0</strong></div>
+              <div class="aside-stat"><span>Flashcards</span><strong id="tutor-card-count">0</strong></div>
+              <div class="aside-stat"><span>Notes</span><strong id="tutor-note-count">0</strong></div>
+            </section>
+            <section class="tutor-side-card">
+              <p class="aside-eyebrow">RECENT TOPICS</p>
+              <div class="recent-topic-list" id="tutor-recent-topics"><span class="hint">Your recent questions will appear here.</span></div>
+            </section>
+            <section class="tutor-side-card">
+              <p class="aside-eyebrow">TRY ASKING</p>
+              <div class="prompt-list">
+                <button type="button" class="quick-prompt" data-prompt="Explain this concept in simple terms.">Explain a concept simply <span aria-hidden="true">↗</span></button>
+                <button type="button" class="quick-prompt" data-prompt="Can you walk me through a worked example?">Walk through an example <span aria-hidden="true">↗</span></button>
+                <button type="button" class="quick-prompt" data-prompt="Quiz me on the key ideas in this topic.">Quiz me on this topic <span aria-hidden="true">↗</span></button>
+              </div>
+            </section>
+          </aside>
+        </div>
+    <p class="footnote">Documents, classes, assignments, notes, flashcards, quiz history, and timer sessions are stored in IndexedDB on this
       browser. AI generation and Tutor use the backend server; raw API keys stay server-side.</p>
+      </main>
+    </div>
   </div>
 
   <script src="app.js"></script>
