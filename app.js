@@ -12,6 +12,8 @@ const CONFIGURED_API_BASE = window.MARGIN_API_BASE || QUERY_API_BASE || localSto
 const DEPLOYED_API_BASE = 'https://studybuddy2-r2i6.onrender.com';
 const API_TIMEOUT_MS = 75000;
 const ACCESS_TOKEN_KEY = 'studybuddy-access-token';
+const TUTOR_MATERIAL_KEY = 'studybuddy-tutor-material';
+const NOTE_CLEANUP_KEY = 'studybuddy-note-cleanup-version';
 const BACKUP_FORMAT = 'studybuddy-data';
 const BACKUP_VERSION = 1;
 const BACKUP_COLLECTIONS = ['documents', 'cards', 'notes', 'quizResults', 'timerSessions', 'classes', 'assignments'];
@@ -39,8 +41,19 @@ let studyFlipped = false;
 let currentQuiz = null;
 let editingClassId = null;
 let editingAssignmentId = null;
-let calendarWeekOffset = 0;
 let reminderIntervalId = null;
+let selectedNoteId = null;
+let noteAutosaveTimer = null;
+let chatPending = false;
+let studyMaterialIndex = new Map();
+let calendarMonthOffset = 0;
+let classesView = 'classes';
+let chatPageIndex = 0;
+let historyPageIndex = 0;
+let documentPageIndex = 0;
+let documentTextPages = [];
+const fitPaginations = new Map();
+const fitPaginationObservers = new Map();
 
 function openDB() {
   if (dbPromise) return dbPromise;
@@ -75,9 +88,123 @@ async function idbGet(key) {
   } catch (e) { console.warn('Could not load', key, e); return undefined; }
 }
 
+function changeDocumentPage(index) {
+  documentPageIndex = Math.max(0, Math.min(Number(index) || 0, documentTextPages.length - 1));
+  renderDocumentPage();
+}
+
 const $ = id => document.getElementById(id);
 function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+function paginateToFit(container, options = {}) {
+  if (!container) return;
+  const key = container.id || container;
+  const state = fitPaginations.get(key) || { page: 0 };
+  fitPaginations.set(key, state);
+  let controls = container.nextElementSibling;
+  if (!controls?.classList.contains('fit-page-controls')) {
+    controls = document.createElement('nav');
+    controls.className = 'fit-page-controls';
+    controls.setAttribute('aria-label', options.label || 'List pages');
+    controls.innerHTML = '<button type="button" class="btn btn-sm" data-fit-prev aria-label="Previous page">Previous</button><span data-fit-status aria-live="polite"></span><button type="button" class="btn btn-sm" data-fit-next aria-label="Next page">Next</button>';
+    container.after(controls);
+    controls.querySelector('[data-fit-prev]').addEventListener('click', () => {
+      state.page = Math.max(0, state.page - 1);
+      paginateToFit(container, options);
+    });
+    controls.querySelector('[data-fit-next]').addEventListener('click', () => {
+      state.page++;
+      paginateToFit(container, options);
+    });
+  }
+  const items = [...container.children].filter(item => !item.classList.contains('fit-page-controls'));
+  const gap = parseFloat(getComputedStyle(container).rowGap) || 8;
+  const columns = options.columns || Math.max(1, getComputedStyle(container).gridTemplateColumns.split(/\s+/).filter(Boolean).length);
+  const previousVisibility = items.map(item => item.hidden);
+  items.forEach(item => { item.hidden = false; });
+  const measuredItemHeight = items.reduce((height, item) => Math.max(height, item.getBoundingClientRect().height), 0);
+  items.forEach((item, index) => { item.hidden = previousVisibility[index]; });
+  const firstItemHeight = Math.max(measuredItemHeight, options.itemHeight || 88);
+  const pageHeight = Math.max(0, container.clientHeight - (options.bottomReserve || 0));
+  const rowsPerPage = Math.max(1, Math.floor((pageHeight + gap) / (firstItemHeight + gap)));
+  const pageSize = Math.max(1, rowsPerPage * columns);
+  state.pageSize = pageSize;
+  state.itemHeight = options.itemHeight || 88;
+  state.label = options.label || 'List pages';
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  state.page = Math.min(state.page, pageCount - 1);
+  const start = state.page * pageSize;
+  items.forEach((item, index) => {
+    const visible = index >= start && index < start + pageSize;
+    item.hidden = !visible;
+    item.setAttribute('aria-hidden', String(!visible));
+  });
+  controls.querySelector('[data-fit-status]').textContent = `Page ${state.page + 1} of ${pageCount} · ${items.length} items`;
+  controls.querySelector('[data-fit-prev]').disabled = state.page === 0;
+  controls.querySelector('[data-fit-next]').disabled = state.page >= pageCount - 1;
+  controls.classList.toggle('hidden', items.length <= pageSize);
+  if (!fitPaginationObservers.has(key) && typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(() => requestAnimationFrame(() => paginateToFit(container, options)));
+    observer.observe(container);
+    fitPaginationObservers.set(key, observer);
+  }
+}
+
+function refreshFitPaginators() {
+  document.querySelectorAll('[data-fit-paginate]').forEach(container => paginateToFit(container, {
+    label: container.dataset.fitLabel || `${container.getAttribute('aria-label') || 'List'} pages`,
+    itemHeight: Number(container.dataset.fitItemHeight) || 88,
+    columns: container.dataset.fitColumns ? Number(container.dataset.fitColumns) : undefined
+  }));
+}
+
+function showFitItem(container, itemSelector) {
+  if (!container) return;
+  const key = container.id || container;
+  const state = fitPaginations.get(key) || { page: 0 };
+  fitPaginations.set(key, state);
+  const items = [...container.children].filter(item => !item.classList.contains('fit-page-controls'));
+  const index = items.findIndex(item => item.matches(itemSelector) || item.querySelector(itemSelector));
+  if (index < 0) return;
+  state.page = Math.floor(index / (state.pageSize || 1));
+  paginateToFit(container, {
+    label: container.dataset.fitLabel || state.label || `${container.getAttribute('aria-label') || 'List'} pages`,
+    itemHeight: Number(container.dataset.fitItemHeight) || state.itemHeight || 88,
+    columns: container.dataset.fitColumns ? Number(container.dataset.fitColumns) : undefined
+  });
+  const target = items[index].matches('button, a, [tabindex]') ? items[index] : items[index].querySelector('button, a, [tabindex]');
+  target?.focus({ preventScroll: true });
+}
+
+function releaseFitPaginator(container) {
+  if (!container) return;
+  const key = container.id || container;
+  fitPaginationObservers.get(key)?.disconnect();
+  fitPaginationObservers.delete(key);
+  fitPaginations.delete(key);
+}
+
+window.addEventListener('resize', () => {
+  refreshFitPaginators();
+  if (!$('panel-calendar').classList.contains('hidden')) renderCalendar();
+});
+document.addEventListener('keydown', event => {
+  if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey
+    || event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+  const active = document.activeElement;
+  const activeContainer = active?.closest('[data-fit-paginate]')
+    || (active?.classList.contains('fit-page-controls') ? active.previousElementSibling : null);
+  const paginator = activeContainer?.nextElementSibling;
+  if (!paginator?.classList.contains('fit-page-controls')) return;
+  const next = ['ArrowRight', 'PageDown'].includes(event.key);
+  const previous = ['ArrowLeft', 'PageUp'].includes(event.key);
+  if (!next && !previous) return;
+  const button = paginator.querySelector(next ? '[data-fit-next]' : '[data-fit-prev]');
+  if (!button.disabled) {
+    event.preventDefault();
+    button.click();
+  }
+});
 function formatBytes(bytes) {
   if (!bytes) return '0 KB';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -191,6 +318,10 @@ function setTheme(theme) {
   const selected = ['light', 'dark', 'system'].includes(theme) ? theme : 'system';
   document.documentElement.dataset.theme = selected;
   localStorage.setItem(THEME_KEY, selected);
+  document.querySelector('meta[name="theme-color"]').setAttribute('content', selected === 'dark'
+    || (selected === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    ? '#151927'
+    : '#f5f6fb');
   $('theme-select').value = selected;
   const dark = effectiveTheme() === 'dark';
   $('theme-toggle').setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} theme`);
@@ -253,7 +384,7 @@ function renderDashboard() {
   ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
 
   $('dashboard-today-schedule').innerHTML = events.length
-    ? events.map(event => `
+    ? events.slice(0, 3).map(event => `
       <article class="dashboard-list-row">
         <span class="dashboard-event-time">${escapeHtml(event.time)}</span>
         <div><strong>${escapeHtml(event.title)}</strong><small>${escapeHtml(event.detail)}</small></div>
@@ -263,7 +394,7 @@ function renderDashboard() {
 
   const upcoming = assignments.filter(assignment => !assignment.completed && Number(assignment.dueAt) < nextWeek.getTime())
     .sort((a, b) => Number(a.dueAt) - Number(b.dueAt))
-    .slice(0, 5);
+    .slice(0, 3);
   $('dashboard-upcoming-assignments').innerHTML = upcoming.length
     ? upcoming.map(assignment => {
       const dueAt = Number(assignment.dueAt);
@@ -340,6 +471,7 @@ function activatePage(page) {
   });
   document.querySelectorAll('.panel').forEach(panel => panel.classList.toggle('hidden', panel.id !== `panel-${page}`));
   $('page-title').textContent = PAGE_TITLES[page];
+  $('topbar-page-title').textContent = PAGE_TITLES[page];
   $('page-layout').classList.toggle('tutor-active', page === 'tutor');
   if (page === 'dashboard') renderDashboard();
   if (page === 'progress') renderProgress();
@@ -348,10 +480,37 @@ function activatePage(page) {
   if (page === 'classes') renderClasses();
 }
 
+function renderReminderBadge() {
+  const count = assignments.filter(assignment => !assignment.completed
+    && Number(assignment.dueAt) < Date.now() + 7 * 24 * 60 * 60 * 1000).length;
+  $('reminders-count').textContent = count > 9 ? '9+' : String(count);
+  $('reminders-count').classList.toggle('hidden', count === 0);
+  $('reminders-bell').setAttribute('aria-label', count
+    ? `Open calendar reminders, ${count} upcoming ${count === 1 ? 'assignment' : 'assignments'}`
+    : 'Open calendar reminders');
+}
+
+$('reminders-bell').addEventListener('click', () => activatePage('calendar'));
+$('tutor-use-material').checked = localStorage.getItem(TUTOR_MATERIAL_KEY) !== 'false';
+$('settings-tutor-material').checked = $('tutor-use-material').checked;
+$('tutor-use-material').addEventListener('change', event => {
+  localStorage.setItem(TUTOR_MATERIAL_KEY, String(event.target.checked));
+  $('settings-tutor-material').checked = event.target.checked;
+});
+$('settings-tutor-material').addEventListener('change', event => {
+  localStorage.setItem(TUTOR_MATERIAL_KEY, String(event.target.checked));
+  $('tutor-use-material').checked = event.target.checked;
+});
+
 document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
   activatePage(tab.dataset.tab);
   closeMobileMenu();
 }));
+$('sidebar').querySelector('.brand').addEventListener('click', event => {
+  event.preventDefault();
+  activatePage('dashboard');
+  closeMobileMenu();
+});
 
 $('menu-toggle').addEventListener('click', () => {
   const isOpen = $('sidebar').classList.contains('open');
@@ -417,18 +576,6 @@ function dateTimeInputValue(timestamp) {
 
 function localDateKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function startOfWeek(date) {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
-  return start;
-}
-
-function getCalendarWeekStart() {
-  const start = startOfWeek(new Date());
-  start.setDate(start.getDate() + calendarWeekOffset * 7);
-  return start;
 }
 
 function formatDueDate(timestamp, includeYear = true) {
@@ -500,23 +647,36 @@ function bindAssignmentActions(container) {
 }
 
 function renderAssignmentList(container, emptyMessage) {
-  const ordered = [...assignments].sort((a, b) => Number(a.dueAt) - Number(b.dueAt));
+  const query = container.id === 'classes-assignment-list' ? $('classes-search').value.trim().toLocaleLowerCase() : '';
+  const ordered = [...assignments]
+    .filter(assignment => !query || `${assignment.title} ${assignment.details} ${classForAssignment(assignment)?.name || ''}`.toLocaleLowerCase().includes(query))
+    .sort((a, b) => Number(a.dueAt) - Number(b.dueAt));
   container.innerHTML = ordered.length
     ? ordered.map(assignmentMarkup).join('')
     : (emptyMessage ? `<div class="empty-state">${escapeHtml(emptyMessage)}</div>` : '');
   bindAssignmentActions(container);
+  paginateToFit(container, { label: 'Assignment pages', itemHeight: 100 });
   return ordered.length;
 }
 
 function renderClasses() {
   const list = $('class-list');
   const empty = $('classes-empty');
-  if (!classes.length) {
+  const query = $('classes-search').value.trim().toLocaleLowerCase();
+  const filteredClasses = classes.filter(item => `${item.name} ${item.instructor || ''} ${item.location || ''}`
+    .toLocaleLowerCase().includes(query));
+  $('panel-classes').classList.toggle('show-assignments', classesView === 'assignments');
+  $('classes-view-classes').setAttribute('aria-pressed', String(classesView === 'classes'));
+  $('classes-view-assignments').setAttribute('aria-pressed', String(classesView === 'assignments'));
+  $('classes-view-classes').classList.toggle('active', classesView === 'classes');
+  $('classes-view-assignments').classList.toggle('active', classesView === 'assignments');
+  if (!filteredClasses.length) {
     list.replaceChildren();
-    empty.classList.remove('hidden');
+    empty.classList.toggle('hidden', classes.length > 0 && query.length === 0);
+    if (classes.length > 0 && query) empty.textContent = 'No classes match this filter.';
   } else {
     empty.classList.add('hidden');
-    list.innerHTML = [...classes].sort((a, b) => a.name.localeCompare(b.name)).map(item => {
+    list.innerHTML = [...filteredClasses].sort((a, b) => a.name.localeCompare(b.name)).map(item => {
       const days = formatMeetingDays(item.meetingDays);
       const time = item.startTime && item.endTime ? `${item.startTime}–${item.endTime}` : '';
       return `
@@ -556,6 +716,7 @@ function renderClasses() {
       renderEverything();
     }));
   }
+  paginateToFit(list, { label: 'Class pages', itemHeight: 116 });
   const assignmentCount = renderAssignmentList($('classes-assignment-list'), '');
   $('assignments-empty').classList.toggle('hidden', assignmentCount > 0);
   renderCalendar();
@@ -564,18 +725,15 @@ function renderClasses() {
 function renderCalendar() {
   const week = $('calendar-week');
   if (!week) return;
-  const firstDay = getCalendarWeekStart();
-  const lastDay = new Date(firstDay);
-  lastDay.setDate(firstDay.getDate() + 6);
-  const rangeFormatter = new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-  $('calendar-range').textContent = `${rangeFormatter.format(firstDay)} – ${rangeFormatter.format(lastDay)}`;
-  week.innerHTML = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(firstDay);
-    date.setDate(firstDay.getDate() + index);
+  const selectedMonth = new Date();
+  selectedMonth.setDate(1);
+  selectedMonth.setMonth(selectedMonth.getMonth() + calendarMonthOffset);
+  const monthStart = new Date(selectedMonth);
+  monthStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
+  $('calendar-range').textContent = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(selectedMonth);
+  week.innerHTML = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(monthStart);
+    date.setDate(monthStart.getDate() + index);
     const dateKey = localDateKey(date);
     const events = [];
     classes.forEach(item => {
@@ -589,22 +747,42 @@ function renderCalendar() {
       events.push({ time: new Date(Number(assignment.dueAt)).toTimeString().slice(0, 5), html: `<div class="calendar-event assignment-event ${assignment.completed ? 'is-complete' : ''}"><span>${assignment.completed ? 'Completed' : 'Assignment'}</span><strong>${escapeHtml(assignment.title)}</strong><time>${escapeHtml(new Date(Number(assignment.dueAt)).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))}</time><button type="button" data-edit-assignment="${escapeHtml(assignment.id)}">View assignment</button></div>` });
     });
     events.sort((a, b) => a.time.localeCompare(b.time));
+    const visibleEventLimit = window.innerHeight >= 900 ? 2 : 1;
+    const showDayButton = events.length > visibleEventLimit || window.innerWidth <= 768;
     const todayClass = dateKey === localDateKey(new Date()) ? 'is-today' : '';
+    const outsideMonth = date.getMonth() !== selectedMonth.getMonth();
     return `
-      <section class="calendar-day ${todayClass}">
+      <section class="calendar-day ${todayClass} ${outsideMonth ? 'outside-month' : ''}">
         <header><span>${escapeHtml(WEEKDAY_NAMES[date.getDay()].slice(0, 3))}</span><strong>${date.getDate()}</strong></header>
-        <div class="calendar-day-events">${events.map(event => event.html).join('') || '<span class="calendar-no-events">No events</span>'}</div>
+        <div class="calendar-day-events">${events.slice(0, visibleEventLimit).map(event => event.html).join('') || '<span class="calendar-no-events">No events</span>'}${showDayButton ? `<button type="button" class="calendar-more-events" data-calendar-more="${dateKey}">${events.length > visibleEventLimit ? `+${events.length - visibleEventLimit} more` : `View ${events.length} ${events.length === 1 ? 'event' : 'events'}`}</button>` : ''}</div>
       </section>
     `;
   }).join('');
   week.querySelectorAll('[data-edit-assignment]').forEach(button => button.addEventListener('click', () => openAssignmentForm(button.dataset.editAssignment)));
+  week.querySelectorAll('[data-calendar-more]').forEach(button => button.addEventListener('click', () => openCalendarDay(button.dataset.calendarMore)));
   const upcoming = assignments.filter(assignment => !assignment.completed).sort((a, b) => Number(a.dueAt) - Number(b.dueAt));
   const container = $('calendar-assignment-list');
   container.innerHTML = upcoming.length
     ? upcoming.map(assignmentMarkup).join('')
     : '<div class="empty-state">You are all caught up. Add an assignment to see it on your calendar.</div>';
   bindAssignmentActions(container);
+  paginateToFit(container, { label: 'Upcoming assignment pages', itemHeight: 100 });
   syncReminderControls();
+}
+
+function openCalendarDay(dateKey) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  const events = [
+    ...classes.filter(item => Array.isArray(item.meetingDays) && item.meetingDays.map(Number).includes(date.getDay()))
+      .map(item => `<article class="calendar-event class-event"><strong>${escapeHtml(item.name)}</strong><time>${escapeHtml(item.startTime || 'Class')}${item.endTime ? `–${escapeHtml(item.endTime)}` : ''}</time><span>${escapeHtml(item.location || item.instructor || '')}</span></article>`),
+    ...assignments.filter(item => localDateKey(new Date(Number(item.dueAt))) === dateKey)
+      .map(item => `<article class="calendar-event assignment-event"><strong>${escapeHtml(item.title)}</strong><time>${escapeHtml(formatDueDate(Number(item.dueAt)))}</time><button type="button" data-edit-assignment="${escapeHtml(item.id)}">View assignment</button></article>`)
+  ];
+  $('calendar-day-title').textContent = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(date);
+  $('calendar-day-events').innerHTML = events.join('') || '<p>No events scheduled.</p>';
+  paginateToFit($('calendar-day-events'), { label: 'Calendar day event pages', itemHeight: 56 });
+  $('calendar-day-dialog').showModal();
+  requestAnimationFrame(() => paginateToFit($('calendar-day-events'), { label: 'Calendar day event pages', itemHeight: 56 }));
 }
 
 function syncReminderControls() {
@@ -976,6 +1154,7 @@ function renderDocuments() {
     idbSet('documents', documents);
     renderEverything();
   }));
+  paginateToFit(list, { label: 'Document pages', itemHeight: 118 });
   renderDocumentSelects();
 }
 
@@ -990,6 +1169,67 @@ function renderDocumentSelects() {
   });
 }
 
+function splitDocumentPages(text, container) {
+  const style = getComputedStyle(container);
+  const font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  const lineHeight = parseFloat(style.lineHeight) || 20;
+  const maxLines = Math.max(4, Math.floor(container.clientHeight / lineHeight));
+  const maxWidth = Math.max(80, container.clientWidth - 4);
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  context.font = font;
+  const lines = [];
+  String(text || '').split(/\r?\n/).forEach(paragraph => {
+    if (!paragraph) {
+      lines.push('');
+      return;
+    }
+    let line = '';
+    paragraph.split(/\s+/).forEach(word => {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && context.measureText(candidate).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+      if (context.measureText(line).width > maxWidth) {
+        let part = '';
+        for (const character of line) {
+          if (part && context.measureText(part + character).width > maxWidth) {
+            lines.push(part);
+            part = character;
+          } else part += character;
+        }
+        line = part;
+      }
+    });
+    if (line) lines.push(line);
+  });
+  const pages = [];
+  for (let index = 0; index < lines.length; index += maxLines) pages.push(lines.slice(index, index + maxLines).join('\n'));
+  return pages.length ? pages : ['No extracted text available.'];
+}
+
+function renderDocumentPage() {
+  const container = $('doc-preview');
+  if (!container) return;
+  documentTextPages = splitDocumentPages(container.dataset.fullText || container.textContent, container);
+  documentPageIndex = Math.max(0, Math.min(documentPageIndex, documentTextPages.length - 1));
+  container.textContent = documentTextPages[documentPageIndex];
+  $('document-page-indicator').textContent = `Page ${documentPageIndex + 1} of ${documentTextPages.length}`;
+  $('document-page-jump').max = String(documentTextPages.length);
+  $('document-page-jump').value = String(documentPageIndex + 1);
+  $('document-page-prev').disabled = documentPageIndex === 0;
+  $('document-page-next').disabled = documentPageIndex >= documentTextPages.length - 1;
+  const doc = documents.find(item => item.id === currentPreviewDocId);
+  if (doc) {
+    doc.readingProgress = Math.round(((documentPageIndex + 1) / documentTextPages.length) * 100);
+    $('doc-progress').value = String(doc.readingProgress);
+    idbSet('documents', documents);
+  }
+}
+
 function previewDocument(id) {
   const doc = documents.find(d => d.id === id);
   if (!doc) return;
@@ -1002,8 +1242,10 @@ function previewDocument(id) {
   $('original-text-toggle').disabled = !hasOriginal;
   $('original-text-toggle').setAttribute('aria-pressed', String(showOriginalDocumentText));
   $('original-text-toggle').textContent = showOriginalDocumentText ? 'View cleaned text' : 'View original text';
-  $('doc-preview').textContent = (showOriginalDocumentText ? originalText : doc.extractedText).slice(0, 12000) || 'No extracted text available.';
-  $('doc-progress').value = doc.readingProgress || 0;
+  $('doc-preview').dataset.fullText = String(showOriginalDocumentText ? originalText : doc.extractedText).slice(0, 120000) || 'No extracted text available.';
+  documentTextPages = splitDocumentPages($('doc-preview').dataset.fullText, $('doc-preview'));
+  documentPageIndex = Math.min(documentTextPages.length - 1, Math.floor(((doc.readingProgress || 0) / 100) * documentTextPages.length));
+  renderDocumentPage();
   idbSet('documents', documents);
   renderDocuments();
 }
@@ -1046,30 +1288,357 @@ function renderTaxonomy() {
   if (units.includes(prevUnit)) $('timer-unit').value = prevUnit;
 }
 
-function addMsg(role, text) {
-  const empty = $('chat-empty');
+function renderTutorScopeOptions() {
+  const select = $('tutor-study-scope');
+  if (!select) return;
+  const current = select.value || 'all';
+  const options = ['<option value="all">All study material</option>'];
+  const courses = [...new Set([
+    ...documents.map(item => item.course),
+    ...notes.map(item => item.tag),
+    ...cards.map(item => item.subject),
+    ...classes.map(item => item.name)
+  ].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  courses.forEach(course => options.push(`<option value="course:${escapeHtml(course)}">Course: ${escapeHtml(course)}</option>`));
+  documents.forEach(item => options.push(`<option value="document:${escapeHtml(item.id)}">Document: ${escapeHtml(item.title)}</option>`));
+  select.innerHTML = options.join('');
+  select.value = [...select.options].some(option => option.value === current) ? current : 'all';
+}
+
+function splitStudyText(text, chunkSize = 650) {
+  const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const chunks = [];
+  let chunk = '';
+  words.forEach(word => {
+    if (chunk && chunk.length + word.length + 1 > chunkSize) {
+      chunks.push(chunk);
+      chunk = '';
+    }
+    chunk += `${chunk ? ' ' : ''}${word}`;
+  });
+  if (chunk) chunks.push(chunk);
+  return chunks;
+}
+
+function indexStudyMaterial(type, records) {
+  const activeIds = new Set();
+  records.forEach(record => {
+    const key = `${type}:${record.id}`;
+    activeIds.add(key);
+    const signature = JSON.stringify([
+      record.updatedAt || record.createdAt || record.takenAt || record.completedAt || '',
+      record.title || record.name || record.front || '',
+      record.body || record.extractedText || record.back || record.text || '',
+      record.score ?? '',
+      record.dueAt || ''
+    ]);
+    if (studyMaterialIndex.get(key)?.signature === signature) return;
+    const text = record.body || record.extractedText || record.text
+      || (type === 'card' ? `${record.front || ''}\n${record.back || ''}` : '');
+    const chunks = type === 'document' || type === 'note' ? splitStudyText(text) : [String(text || '')];
+    studyMaterialIndex.set(key, {
+      signature,
+      chunks: chunks.map((excerpt, index) => ({
+        type,
+        title: record.title || record.name || (type === 'card' ? 'Flashcard' : type === 'quiz' ? 'Quiz result' : type),
+        course: record.course || record.tag || record.subject || '',
+        sourceId: record.id,
+        text: type === 'quiz'
+          ? `Quiz score ${record.score}% (${record.correct}/${record.total}) in ${record.course || 'General'} ${Array.isArray(record.mistakes) && record.mistakes.length
+            ? `Mistakes: ${record.mistakes.map(mistake => `${mistake.question} Your answer: ${mistake.answer || 'blank'}; correct answer: ${mistake.correctAnswer || 'not recorded'}`).join('; ')}`
+            : ''}`
+          : excerpt,
+        chunkIndex: index
+      })).filter(chunk => chunk.text.trim())
+    });
+  });
+  [...studyMaterialIndex.keys()].forEach(key => {
+    if (key.startsWith(`${type}:`) && !activeIds.has(key)) studyMaterialIndex.delete(key);
+  });
+}
+
+function updateStudyMaterialIndex() {
+  indexStudyMaterial('document', documents.map(item => ({
+    ...item, title: item.title, course: item.course, extractedText: item.extractedText
+  })));
+  indexStudyMaterial('note', notes.map(item => ({
+    ...item, title: item.title || 'Untitled note', course: item.tag, body: item.body
+  })));
+  indexStudyMaterial('card', cards);
+  indexStudyMaterial('quiz', quizResults);
+  indexStudyMaterial('assignment', assignments.map(item => ({
+    ...item, title: item.title, course: classForAssignment(item)?.name || 'General',
+    text: `${item.title || 'Assignment'} ${item.details || ''} due ${new Date(Number(item.dueAt)).toLocaleString()} ${item.completed ? 'completed' : 'open'}`
+  })));
+  indexStudyMaterial('class', classes.map(item => ({
+    ...item, course: item.name, text: `${item.name} ${item.instructor || ''} ${item.location || ''} ${formatMeetingDays(item.meetingDays)} ${item.startTime || ''} ${item.endTime || ''}`
+  })));
+  indexStudyMaterial('session', timerSessions.map(item => ({
+    ...item, title: `${item.course || 'General'} study session`,
+    text: `${Math.round((Number(item.seconds) || 0) / 60)} minutes ${item.unit || ''} ${new Date(Number(item.completedAt)).toLocaleString()}`
+  })));
+  indexStudyMaterial('progress', [{
+    id: 'aggregate',
+    title: 'Study progress',
+    text: `${documents.filter(item => (item.readingProgress || 0) >= 100).length} documents completed. `
+      + `${cards.filter(item => item.mastered).length} of ${cards.length} flashcards mastered. `
+      + `${quizResults.length ? Math.round(quizResults.reduce((total, item) => total + item.score, 0) / quizResults.length) : 0}% average quiz accuracy. `
+      + `${Math.round(timerSessions.reduce((total, item) => total + (Number(item.seconds) || 0), 0) / 60)} minutes total focus time.`
+  }]);
+}
+
+function tokenizeStudyText(text) {
+  return String(text || '').toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [];
+}
+
+function retrieveStudyReferences(question) {
+  updateStudyMaterialIndex();
+  const queryTerms = [...new Set(tokenizeStudyText(question))];
+  if (!queryTerms.length) return [];
+  const query = $('tutor-study-scope').value;
+  const includePlanning = /\b(class|classes|course|schedule|assignment|assignments|deadline|due|progress|timer|focus|study time|session)\b/i.test(question);
+  const candidates = [...studyMaterialIndex.values()].flatMap(entry => entry.chunks)
+    .filter(chunk => {
+      if (query.startsWith('course:') && chunk.course !== query.slice(7)) return false;
+      if (query.startsWith('document:')) {
+        const documentId = query.slice(9);
+        return (chunk.type === 'document' && chunk.sourceId === documentId)
+          || (chunk.type === 'note' && notes.find(item => item.id === chunk.sourceId)?.sourceDocumentId === documentId)
+          || (chunk.type === 'card' && cards.find(item => item.id === chunk.sourceId)?.sourceDocumentId === documentId);
+      }
+      if (!includePlanning && ['assignment', 'class', 'session'].includes(chunk.type)) return false;
+      return true;
+    });
+  const documentFrequency = new Map();
+  candidates.forEach(chunk => {
+    const terms = new Set(tokenizeStudyText(`${chunk.title} ${chunk.course} ${chunk.text}`));
+    terms.forEach(term => documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1));
+  });
+  const averageLength = candidates.length
+    ? candidates.reduce((sum, chunk) => sum + tokenizeStudyText(chunk.text).length, 0) / candidates.length
+    : 0;
+  const ranked = candidates.map(chunk => {
+    const terms = tokenizeStudyText(`${chunk.title} ${chunk.course} ${chunk.text}`);
+    const frequencies = new Map();
+    terms.forEach(term => frequencies.set(term, (frequencies.get(term) || 0) + 1));
+    const score = queryTerms.reduce((total, term) => {
+      const frequency = frequencies.get(term) || 0;
+      if (!frequency) return total;
+      const idf = Math.log(1 + (candidates.length - (documentFrequency.get(term) || 0) + .5)
+        / ((documentFrequency.get(term) || 0) + .5));
+      const denominator = frequency + 1.2 * (.25 + .75 * terms.length / Math.max(1, averageLength));
+      return total + idf * frequency * 2.2 / denominator;
+    }, 0);
+    return { chunk, score };
+  }).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
+  const references = [];
+  const seen = new Set();
+  let usedCharacters = 0;
+  for (const { chunk } of ranked) {
+    const key = `${chunk.type}:${chunk.sourceId}`;
+    const text = chunk.text.slice(0, 900);
+    if (seen.has(key) || usedCharacters + text.length > 7000) continue;
+    seen.add(key);
+    references.push({
+      type: chunk.type,
+      title: chunk.title,
+      course: chunk.course,
+      ...(chunk.type === 'progress' ? {} : { sourceId: chunk.sourceId }),
+      text
+    });
+    usedCharacters += text.length;
+    if (references.length >= 8) break;
+  }
+  return references;
+}
+
+function addMsg(role, text, container = $('chat-log')) {
+  const empty = container.querySelector('.chat-empty');
   if (empty) empty.remove();
   const div = document.createElement('div');
   div.className = 'msg ' + role;
-  div.textContent = text;
-  $('chat-log').appendChild(div);
-  $('chat-log').scrollTop = $('chat-log').scrollHeight;
+  if (role === 'user') {
+    const content = document.createElement('div');
+    content.className = 'user-content';
+    content.textContent = text;
+    div.appendChild(content);
+    if (text.length > 360) {
+      const showMore = document.createElement('button');
+      showMore.type = 'button';
+      showMore.className = 'text-btn reply-show-more';
+      showMore.textContent = 'Show full question';
+      showMore.addEventListener('click', () => openReplyDialog(text));
+      div.appendChild(showMore);
+    }
+  } else {
+    div.textContent = text;
+  }
+  container.appendChild(div);
   return div;
 }
+
+function addAssistantMsg(text, sources = [], container = $('chat-log')) {
+  const message = addMsg('assistant', '', container);
+  const content = document.createElement('div');
+  content.className = 'assistant-content';
+  content.textContent = text;
+  message.appendChild(content);
+  if (text.length > 360) {
+    const showMore = document.createElement('button');
+    showMore.type = 'button';
+    showMore.className = 'text-btn reply-show-more';
+    showMore.textContent = 'Show more';
+    showMore.addEventListener('click', () => openReplyDialog(text));
+    message.appendChild(showMore);
+  }
+  if (sources.length) {
+    const details = document.createElement('details');
+    details.className = 'message-sources';
+    const summary = document.createElement('summary');
+    summary.textContent = `Sources used (${sources.length})`;
+    const list = document.createElement('ul');
+    sources.forEach(source => {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'source-open';
+      button.dataset.sourceType = source.type;
+      button.dataset.sourceId = source.sourceId || '';
+      button.textContent = `[${source.type === 'document' ? 'Doc' : source.type.charAt(0).toUpperCase() + source.type.slice(1)}: ${source.title}]`;
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    details.append(summary, list);
+    message.appendChild(details);
+  }
+  return message;
+}
+
+function renderTutorChatPage() {
+  const log = $('chat-log');
+  log.replaceChildren();
+  const exchanges = Math.max(1, Math.ceil(chatHistory.length / 2));
+  chatPageIndex = Math.max(0, Math.min(chatPageIndex, exchanges - 1));
+  const pairStart = chatPageIndex * 2;
+  const messages = chatHistory.slice(pairStart, pairStart + 2);
+  messages.forEach(message => {
+    if (message.role === 'assistant') addAssistantMsg(message.content, message.sources || []);
+    else addMsg('user', message.content);
+  });
+  if (!messages.length) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-empty';
+    empty.id = 'chat-empty';
+    empty.textContent = 'Ask about a concept, a past-paper question, or get a worked example.';
+    log.appendChild(empty);
+  }
+  if (chatPending && messages.at(-1)?.role === 'user') addMsg('assistant loading', 'Thinking...');
+  const controls = $('chat-page-controls');
+  controls.innerHTML = `<button type="button" class="btn btn-sm" data-chat-prev ${chatPageIndex === 0 ? 'disabled' : ''}>Previous exchange</button><span aria-live="polite">Exchange ${exchanges ? chatPageIndex + 1 : 0} of ${exchanges}</span><button type="button" class="btn btn-sm" data-chat-next ${chatPageIndex >= exchanges - 1 ? 'disabled' : ''}>Next exchange</button>`;
+  controls.querySelector('[data-chat-prev]').addEventListener('click', () => { chatPageIndex--; renderTutorChatPage(); });
+  controls.querySelector('[data-chat-next]').addEventListener('click', () => { chatPageIndex++; renderTutorChatPage(); });
+}
+
+function renderTutorHistory() {
+  const content = $('tutor-history-content');
+  const pageSize = 2;
+  const pageCount = Math.max(1, Math.ceil(chatHistory.length / (pageSize * 2)));
+  historyPageIndex = Math.max(0, Math.min(historyPageIndex, pageCount - 1));
+  const firstPair = historyPageIndex * pageSize;
+  const pageMessages = chatHistory.slice(firstPair * 2, (firstPair + pageSize) * 2);
+  content.replaceChildren();
+  pageMessages.forEach(message => {
+    const item = message.role === 'assistant'
+      ? addAssistantMsg(message.content, message.sources || [], content)
+      : addMsg('user', message.content, content);
+    item.classList.add('history-message');
+  });
+  const controls = $('tutor-history-controls');
+  controls.innerHTML = `<button type="button" class="btn btn-sm" data-history-prev ${historyPageIndex === 0 ? 'disabled' : ''}>Previous</button><span aria-live="polite">Page ${historyPageIndex + 1} of ${pageCount}</span><button type="button" class="btn btn-sm" data-history-next ${historyPageIndex >= pageCount - 1 ? 'disabled' : ''}>Next</button>`;
+  controls.querySelector('[data-history-prev]').addEventListener('click', () => { historyPageIndex--; renderTutorHistory(); });
+  controls.querySelector('[data-history-next]').addEventListener('click', () => { historyPageIndex++; renderTutorHistory(); });
+  if (!chatHistory.length) {
+    content.innerHTML = '<p class="hint">No conversation history yet.</p>';
+  }
+}
+
+let replyPages = [];
+let replyPageIndex = 0;
+
+function openReplyDialog(text) {
+  const content = $('reply-dialog-content');
+  const pageLength = Math.max(500, Math.min(1400, Math.floor(($('reply-dialog').clientWidth || 700) * ($('reply-dialog').clientHeight || 500) / 26)));
+  replyPages = [];
+  for (let index = 0; index < text.length; index += pageLength) replyPages.push(text.slice(index, index + pageLength));
+  replyPageIndex = 0;
+  content.textContent = replyPages[0] || '';
+  renderReplyControls();
+  $('reply-dialog').showModal();
+}
+
+function renderReplyControls() {
+  const controls = $('reply-dialog-controls');
+  controls.innerHTML = `<button type="button" class="btn btn-sm" data-reply-prev ${replyPageIndex === 0 ? 'disabled' : ''}>Previous</button><span aria-live="polite">Part ${replyPageIndex + 1} of ${replyPages.length}</span><button type="button" class="btn btn-sm" data-reply-next ${replyPageIndex >= replyPages.length - 1 ? 'disabled' : ''}>Next</button>`;
+  controls.querySelector('[data-reply-prev]').addEventListener('click', () => { replyPageIndex--; renderReplyPage(); });
+  controls.querySelector('[data-reply-next]').addEventListener('click', () => { replyPageIndex++; renderReplyPage(); });
+}
+
+function renderReplyPage() {
+  $('reply-dialog-content').textContent = replyPages[replyPageIndex] || '';
+  renderReplyControls();
+}
+
+function openStudySource(type, id) {
+  if (!id && type !== 'progress') return;
+  if (type === 'document') {
+    activatePage('documents');
+    previewDocument(id);
+  } else if (type === 'note') {
+    activatePage('notes');
+    selectNote(id);
+  } else if (type === 'card') {
+    activatePage('cards');
+    $('card-course-filter').value = 'all';
+    $('card-unit-filter').value = 'all';
+    $('card-mastery-filter').value = 'all';
+    $('card-search').value = '';
+    renderCardList();
+    showFitItem($('card-list'), `[data-card-id="${CSS.escape(id)}"]`);
+  } else if (type === 'assignment' || type === 'class') {
+    activatePage('classes');
+    classesView = type === 'assignment' ? 'assignments' : 'classes';
+    renderClasses();
+    showFitItem($(type === 'assignment' ? 'classes-assignment-list' : 'class-list'), `[data-edit-${type}="${CSS.escape(id)}"]`);
+  } else if (type === 'quiz' || type === 'session' || type === 'progress') {
+    activatePage('progress');
+  }
+}
+
+document.querySelector('#chat-log').addEventListener('click', event => {
+  const source = event.target.closest('.source-open');
+  if (source) openStudySource(source.dataset.sourceType, source.dataset.sourceId);
+});
+document.querySelector('#tutor-history-dialog').addEventListener('click', event => {
+  const source = event.target.closest('.source-open');
+  if (source) openStudySource(source.dataset.sourceType, source.dataset.sourceId);
+});
+
 async function sendChat() {
   const q = $('chat-input').value.trim();
-  if (!q) return;
+  if (!q || chatPending) return;
+  chatPending = true;
   $('chat-input').value = '';
   $('chat-send').disabled = true;
-  addMsg('user', q);
   chatHistory.push({ role: 'user', content: q });
+  chatPageIndex = Math.ceil(chatHistory.length / 2) - 1;
+  renderTutorChatPage();
   renderTutorOverview();
-  const loadingEl = addMsg('assistant loading', 'Thinking...');
   try {
+    const references = $('tutor-use-material').checked ? retrieveStudyReferences(q) : [];
     const res = await apiFetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: q, history: chatHistory.slice(0, -1) })
+      body: JSON.stringify({ input: q, history: chatHistory.slice(0, -1), references })
     });
     if (!res.ok) throw new Error(await apiErrorMessage(res, 'The AI request failed'));
     let data;
@@ -1083,19 +1652,27 @@ async function sendChat() {
       throw new Error('The AI did not return a response. Please try again.');
     }
     const textBlock = data.reply;
-    loadingEl.remove();
-    addMsg('assistant', textBlock);
-    chatHistory.push({ role: 'assistant', content: textBlock });
+    chatHistory.push({ role: 'assistant', content: textBlock, sources: Array.isArray(data.sources) ? data.sources : [] });
     if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+    chatPageIndex = Math.ceil(chatHistory.length / 2) - 1;
+    renderTutorChatPage();
     renderTutorOverview();
   } catch (err) {
-    loadingEl.remove();
-    addMsg('assistant', err.message || 'Could not reach the tutor. Check the backend server and try again.');
-    chatHistory.pop();
+    chatHistory.push({ role: 'assistant', content: err.message || 'Could not reach the tutor. Check the backend server and try again.' });
+    chatPageIndex = Math.ceil(chatHistory.length / 2) - 1;
+    renderTutorChatPage();
   } finally {
+    chatPending = false;
     $('chat-send').disabled = false;
   }
 }
+
+$('clear-chat-btn').addEventListener('click', () => {
+  chatHistory = [];
+  chatPageIndex = 0;
+  renderTutorChatPage();
+  renderTutorOverview();
+});
 
 function cardLabel(card) {
   if (card.format === 'definition') return 'Definition';
@@ -1103,28 +1680,23 @@ function cardLabel(card) {
   return 'Basic';
 }
 function renderDeckBar() {
-  const subs = [...new Set(cards.map(c => c.subject || 'General'))].sort();
-  const bar = $('deck-bar');
-  if (subs.length === 0) { bar.innerHTML = ''; return; }
-  let html = `<button class="deck-chip ${activeSubject === 'all' ? 'active' : ''}" data-subj="all">All (${cards.length})</button>`;
-  subs.forEach(s => {
-    const count = cards.filter(c => (c.subject || 'General') === s).length;
-    html += `<button class="deck-chip ${activeSubject === s ? 'active' : ''}" data-subj="${escapeHtml(s)}">${escapeHtml(s)} (${count})</button>`;
-  });
-  bar.innerHTML = html;
-  bar.querySelectorAll('.deck-chip').forEach(btn => btn.addEventListener('click', () => {
-    activeSubject = btn.dataset.subj;
-    renderDeckBar();
-    renderCardList();
-  }));
+  const select = $('card-course-filter');
+  if (!select) return;
+  const courses = [...new Set(cards.map(card => card.subject || 'General'))].sort((a, b) => a.localeCompare(b));
+  const previous = select.value || 'all';
+  select.innerHTML = `<option value="all">All courses</option>${courses.map(course => `<option value="${escapeHtml(course)}">${escapeHtml(course)}</option>`).join('')}`;
+  select.value = courses.includes(previous) ? previous : 'all';
 }
 function filteredCards() {
+  const course = $('card-course-filter').value;
   const unit = $('card-unit-filter').value;
   const mastery = $('card-mastery-filter').value;
+  const query = $('card-search').value.trim().toLocaleLowerCase();
   return cards.filter(card =>
-    (activeSubject === 'all' || (card.subject || 'General') === activeSubject)
+    (course === 'all' || (card.subject || 'General') === course)
     && (unit === 'all' || (card.unit || 'General') === unit)
     && (mastery === 'all' || (mastery === 'mastered' ? card.mastered : !card.mastered))
+    && (!query || `${card.front} ${card.back} ${card.subject} ${card.unit}`.toLocaleLowerCase().includes(query))
   );
 }
 
@@ -1135,56 +1707,55 @@ function renderCardFilters() {
   select.innerHTML = `<option value="all">All units</option>${units.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
   select.value = units.includes(previous) ? previous : 'all';
 }
+
+function cardMarkup(card) {
+  return `
+    <article class="card-row" data-card-id="${escapeHtml(card.id)}">
+      <div class="meta-line">
+        <span class="card-course-label">${escapeHtml(card.subject || 'General')}</span>
+        <i class="mastery-dot ${card.mastered ? 'mastered' : ''}" role="img" aria-label="${card.mastered ? 'Mastered' : 'Still learning'}"></i>
+      </div>
+      <button type="button" class="card-face" data-flip-card="${escapeHtml(card.id)}" aria-pressed="false" aria-label="Show answer">
+        <span class="card-front">${escapeHtml(card.front)}</span>
+        <span class="card-back">${escapeHtml(card.back)}</span>
+      </button>
+      <details class="card-more">
+        <summary aria-label="More flashcard details">···</summary>
+        <div class="card-more-menu">
+          <span>Unit: ${escapeHtml(card.unit || 'General')}</span>
+          <span>Type: ${escapeHtml(cardLabel(card))}</span>
+          <span>${card.aiGenerated ? 'AI generated' : 'Added by you'}</span>
+          ${card.sourceDocumentTitle ? `<span>Source: ${escapeHtml(card.sourceDocumentTitle)}</span>` : ''}
+          <button type="button" data-edit-card="${escapeHtml(card.id)}">Edit card</button>
+          <button type="button" data-delete-card="${escapeHtml(card.id)}">Delete card</button>
+        </div>
+      </details>
+    </article>
+  `;
+}
+
 function renderCardList() {
   const list = $('card-list');
   const empty = $('cards-empty');
-  const fc = filteredCards();
+  const fc = filteredCards().sort((a, b) => (a.subject || 'General').localeCompare(b.subject || 'General'));
   if (fc.length === 0) { list.innerHTML = ''; empty.classList.remove('hidden'); return; }
   empty.classList.add('hidden');
-  list.innerHTML = fc.map(c => `
-    <article class="card-row">
-      <div class="meta-line">
-        <span class="pill">${escapeHtml(c.subject || 'General')}</span>
-        <span class="pill">${cardLabel(c)}</span>
-        ${c.sourceDocumentTitle || documents.find(doc => doc.id === c.sourceDocumentId) ? `<span class="pill source-pill" title="Source document">Source: ${escapeHtml(c.sourceDocumentTitle || documents.find(doc => doc.id === c.sourceDocumentId).title)}</span>` : ''}
-        ${c.aiGenerated ? '<span class="pill ai">AI generated</span>' : '<span class="pill">Added by you</span>'}
-      </div>
-      <button type="button" class="flashcard-face" data-flip-card="${c.id}" aria-pressed="false" aria-label="Reveal answer">
-        <span class="face-label">QUESTION</span>
-        <span class="face-content">${escapeHtml(c.front)}</span>
-        <span class="face-hint">Click to reveal answer</span>
-      </button>
-      <details class="flashcard-details">
-        <summary>Card details</summary>
-        <div class="meta-line">
-          <span class="pill">${escapeHtml(c.unit || 'General')}</span>
-        </div>
-      </details>
-      <div class="card-actions">
-        <span class="mastery-label"><i class="mastery-dot ${c.mastered ? 'mastered' : ''}"></i>${c.mastered ? 'Mastered' : 'Still learning'}</span>
-        <button class="icon-btn" data-edit-card="${c.id}" title="Edit" aria-label="Edit flashcard">edit</button>
-        <button class="icon-btn btn-danger" data-del-card="${c.id}" title="Delete" aria-label="Delete card">x</button>
-      </div>
-    </article>
-  `).join('');
+  list.innerHTML = fc.map(cardMarkup).join('');
   list.querySelectorAll('[data-flip-card]').forEach(button => button.addEventListener('click', () => {
-    const card = cards.find(item => item.id === button.dataset.flipCard);
-    if (!card) return;
-    const flipped = button.getAttribute('aria-pressed') !== 'true';
-    button.setAttribute('aria-pressed', String(flipped));
-    button.setAttribute('aria-label', flipped ? 'Show question' : 'Reveal answer');
+    const flipped = !button.classList.contains('flipped');
     button.classList.toggle('flipped', flipped);
-    button.querySelector('.face-label').textContent = flipped ? 'ANSWER' : 'QUESTION';
-    button.querySelector('.face-content').textContent = flipped ? card.back : card.front;
-    button.querySelector('.face-hint').textContent = flipped ? 'Click to return to question' : 'Click to reveal answer';
+    button.setAttribute('aria-pressed', String(flipped));
+    button.setAttribute('aria-label', flipped ? 'Show question' : 'Show answer');
   }));
-  list.querySelectorAll('[data-del-card]').forEach(btn => btn.addEventListener('click', () => {
-    if (!confirm('Delete this flashcard?')) return;
-    cards = cards.filter(c => c.id !== btn.dataset.delCard);
+  list.querySelectorAll('[data-delete-card]').forEach(btn => btn.addEventListener('click', () => {
+    const card = cards.find(item => item.id === btn.dataset.deleteCard);
+    if (!card || !confirm('Delete this flashcard?')) return;
+    cards = cards.filter(card => card.id !== btn.dataset.deleteCard);
     idbSet('cards', cards);
     renderEverything();
   }));
   list.querySelectorAll('[data-edit-card]').forEach(btn => btn.addEventListener('click', () => openCardForm(btn.dataset.editCard)));
+  paginateToFit(list, { label: 'Flashcard pages', itemHeight: 154 });
 }
 function openCardForm(id = null) {
   const card = cards.find(item => item.id === id);
@@ -1305,17 +1876,23 @@ function startCardStudy() {
   studyIndex = 0;
   $('cards-study').classList.remove('hidden');
   renderStudyCard();
+  $('flip-card').focus();
 }
 function renderStudyCard() {
   if (studyIndex >= studyDeck.length) {
     $('card-study-progress').textContent = 'Session complete.';
     $('flip-card').textContent = 'Nice work. The deck is cleared for now.';
     $('flip-card').classList.remove('flipped');
+    $('flip-card').setAttribute('aria-pressed', 'false');
+    $('flip-card').setAttribute('aria-label', 'Study session complete.');
+    studyFlipped = false;
     return;
   }
   studyFlipped = false;
   $('card-study-progress').textContent = `Card ${studyIndex + 1} of ${studyDeck.length}`;
   $('flip-card').classList.remove('flipped');
+  $('flip-card').setAttribute('aria-pressed', 'false');
+  $('flip-card').setAttribute('aria-label', 'Flashcard. Press Space to flip.');
   $('flip-card').textContent = studyDeck[studyIndex].front;
 }
 function markStudyCard(mastered) {
@@ -1326,6 +1903,7 @@ function markStudyCard(mastered) {
   idbSet('cards', cards);
   renderStudyCard();
   renderProgress();
+  $('flip-card').focus();
 }
 function shuffle(items) {
   for (let i = items.length - 1; i > 0; i--) {
@@ -1336,70 +1914,145 @@ function shuffle(items) {
 }
 
 function renderNotes() {
-  const grid = $('note-grid');
-  const empty = $('notes-empty');
-  const q = $('notes-search').value.trim().toLowerCase();
-  const filtered = notes.filter(n => {
-    const hay = `${n.title} ${n.body} ${n.tag} ${n.unit}`.toLowerCase();
-    return !q || hay.includes(q);
-  }).sort((a, b) => b.updatedAt - a.updatedAt);
-  if (filtered.length === 0) { grid.innerHTML = ''; empty.classList.remove('hidden'); return; }
-  empty.classList.add('hidden');
-  grid.innerHTML = filtered.map(n => `
-    <article class="note-card">
-      <div class="meta-line">
-        <span class="pill">${escapeHtml(n.tag || 'General')}</span>
-        <span class="pill">${escapeHtml(n.unit || 'General')}</span>
-        ${n.sourceDocumentTitle || documents.find(doc => doc.id === n.sourceDocumentId) ? `<span class="pill source-pill" title="Source document">Source: ${escapeHtml(n.sourceDocumentTitle || documents.find(doc => doc.id === n.sourceDocumentId).title)}</span>` : ''}
-        ${n.aiGenerated ? '<span class="pill ai">AI generated</span>' : ''}
-      </div>
-      <h4>${escapeHtml(n.title || 'Untitled')}</h4>
-    <div class="body markdown-body">${renderMarkdown(n.body)}</div>
-      <div class="note-meta">
-      <span class="hint">Edited ${new Date(n.updatedAt || n.createdAt).toLocaleDateString()}</span>
-        <span>
-          <button class="icon-btn" data-edit-note="${n.id}" title="Edit" aria-label="Edit note">edit</button>
-          <button class="icon-btn btn-danger" data-del-note="${n.id}" title="Delete" aria-label="Delete note">x</button>
-        </span>
-      </div>
-    </article>
+  const query = $('notes-search').value.trim().toLocaleLowerCase();
+  const sort = $('notes-sort').value;
+  const filtered = notes.filter(note => !query
+    || `${note.title} ${note.body} ${note.tag} ${note.unit} ${normalizeNoteTags(note.tags).join(' ')}`.toLocaleLowerCase().includes(query));
+  filtered.sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+    || (sort === 'title' ? (a.title || '').localeCompare(b.title || '')
+      : sort === 'course' ? (a.tag || '').localeCompare(b.tag || '') || (a.title || '').localeCompare(b.title || '')
+        : (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
+  if (!filtered.some(note => note.id === selectedNoteId)) selectedNoteId = filtered[0]?.id || null;
+  $('notes-empty').classList.toggle('hidden', filtered.length > 0);
+  $('note-grid').innerHTML = filtered.map(note => `
+    <button class="note-card ${note.id === selectedNoteId ? 'selected' : ''}" type="button" data-select-note="${escapeHtml(note.id)}" aria-pressed="${note.id === selectedNoteId}">
+      <span class="note-card-topline"><span class="note-card-course">${escapeHtml(note.tag || 'General')}</span>${note.pinned ? '<span aria-label="Pinned">★</span>' : ''}</span>
+      <strong>${escapeHtml(note.title || 'Untitled')}</strong>
+      <span class="note-card-preview">${escapeHtml(String(note.body || '').replace(/\s+/g, ' ').trim())}</span>
+      <span class="note-card-meta">${escapeHtml(new Date(note.updatedAt || note.createdAt || Date.now()).toLocaleDateString())}</span>
+    </button>
   `).join('');
-  grid.querySelectorAll('[data-edit-note]').forEach(btn => btn.addEventListener('click', () => openNoteForm(btn.dataset.editNote)));
-  grid.querySelectorAll('[data-del-note]').forEach(btn => btn.addEventListener('click', () => {
-    if (!confirm('Delete this note?')) return;
-    notes = notes.filter(n => n.id !== btn.dataset.delNote);
-    idbSet('notes', notes);
-    renderNotes();
-  }));
+  $('note-grid').querySelectorAll('[data-select-note]').forEach(button => button.addEventListener('click', () => selectNote(button.dataset.selectNote)));
+  paginateToFit($('note-grid'), { label: 'Note pages', itemHeight: 110 });
+  renderNoteDetail();
+}
+
+function cleanNoteBody(value) {
+  let body = String(value || '')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\t/g, '\t')
+    .replace(/\r\n?/g, '\n');
+  const fenced = body.trim().match(/^```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```\s*$/i);
+  if (fenced) body = fenced[1];
+  return body.trim();
+}
+
+function normalizeNoteTags(value) {
+  const tags = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(tags
+    .filter(tag => typeof tag === 'string')
+    .map(tag => tag.trim())
+    .filter(Boolean))].slice(0, 20);
+}
+
+function noteHeadings(markdown) {
+  const counts = new Map();
+  return String(markdown || '').split('\n').flatMap(line => {
+    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    if (!match) return [];
+    const slug = slugify(match[2]);
+    const count = counts.get(slug) || 0;
+    counts.set(slug, count + 1);
+    return [{ level: match[1].length, title: match[2].trim(), id: count ? `${slug}-${count + 1}` : slug }];
+  });
+}
+
+function slugify(value) {
+  return String(value || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'note-section';
 }
 
 function renderMarkdown(markdown) {
-  const lines = String(markdown || '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = cleanNoteBody(markdown).split('\n');
   const blocks = [];
   let paragraph = [];
-  let listItems = [];
+  let list = [];
+  let listType = '';
   let codeLines = [];
+  let codeLanguage = '';
   let inCode = false;
-  const inline = value => escapeHtml(value)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  let tableRows = [];
+  let quoteLines = [];
+  let headingCounts = new Map();
+  const inline = value => {
+    const code = [];
+    let output = escapeHtml(value).replace(/`([^`]+)`/g, (_, content) => {
+      code.push(`<code>${content}</code>`);
+      return `\u0000${code.length - 1}\u0000`;
+    });
+    output = output
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+      .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>')
+      .replace(/~~(.+?)~~/g, '<del>$1</del>');
+    return output.replace(/\u0000(\d+)\u0000/g, (_, index) => code[Number(index)] || '');
+  };
   const flushParagraph = () => {
-    if (paragraph.length) blocks.push(`<p>${inline(paragraph.join(' '))}</p>`);
+    if (paragraph.length) {
+      const words = paragraph.join(' ').split(/\s+/);
+      const chunks = [];
+      let chunk = '';
+      words.forEach(word => {
+        if (chunk && chunk.length + word.length + 1 > 520) {
+          chunks.push(chunk);
+          chunk = '';
+        }
+        chunk += `${chunk ? ' ' : ''}${word}`;
+      });
+      if (chunk) chunks.push(chunk);
+      chunks.forEach(text => blocks.push(`<p>${inline(text)}</p>`));
+    }
     paragraph = [];
   };
   const flushList = () => {
-    if (listItems.length) blocks.push(`<ul>${listItems.map(item => `<li>${inline(item)}</li>`).join('')}</ul>`);
-    listItems = [];
+    if (list.length) {
+      const tag = listType === 'ol' ? 'ol' : 'ul';
+      blocks.push(`<${tag}>${list.map(item => `<li>${inline(item)}</li>`).join('')}</${tag}>`);
+    }
+    list = [];
+    listType = '';
   };
-
+  const flushQuote = () => {
+    if (quoteLines.length) blocks.push(`<blockquote>${quoteLines.map(line => `<p>${inline(line)}</p>`).join('')}</blockquote>`);
+    quoteLines = [];
+  };
+  const flushTable = () => {
+    if (tableRows.length < 2) {
+      tableRows.forEach(row => blocks.push(`<p>${inline(row)}</p>`));
+      tableRows = [];
+      return;
+    }
+    const cells = row => row.replace(/^\s*\|?|\|?\s*$/g, '').split('|').map(cell => cell.trim());
+    const header = cells(tableRows[0]);
+    const bodyRows = tableRows.slice(1).filter(row => !/^\s*\|?\s*:?-{3,}/.test(row)).map(cells);
+    blocks.push(`<div class="markdown-table-wrap"><table><thead><tr>${header.map(cell => `<th>${inline(cell)}</th>`).join('')}</tr></thead><tbody>${bodyRows.map(row => `<tr>${header.map((_, index) => `<td>${inline(row[index] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+    tableRows = [];
+  };
+  const flushAll = () => { flushParagraph(); flushList(); flushQuote(); flushTable(); };
   lines.forEach(line => {
-    if (line.trim().startsWith('```')) {
-      flushParagraph();
-      flushList();
+    const fence = line.trim().match(/^```([a-z0-9_+-]*)\s*$/i);
+    if (fence) {
+      flushAll();
       if (inCode) {
-        blocks.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+        const index = blocks.length;
+        blocks.push(`<section class="markdown-code-block"><header class="markdown-code-header"><span>${escapeHtml(codeLanguage || 'Code')}</span><button type="button" data-copy-code="${index}">Copy code</button></header><pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre></section>`);
         codeLines = [];
+        codeLanguage = '';
+      } else {
+        codeLanguage = fence[1];
       }
       inCode = !inCode;
       return;
@@ -1408,69 +2061,350 @@ function renderMarkdown(markdown) {
       codeLines.push(line);
       return;
     }
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    const bullet = line.match(/^\s*(?:[-*+]|\u2022)\s+(.+)$/);
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-    } else if (heading) {
-      flushParagraph();
-      flushList();
-      const level = heading[1].length;
-      blocks.push(`<h${level}>${inline(heading[2])}</h${level}>`);
-    } else if (bullet) {
-      flushParagraph();
-      listItems.push(bullet[1]);
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (line.includes('|') && /^\s*\|?.+\|.+/.test(line)) {
+      flushParagraph(); flushList(); flushQuote();
+      tableRows.push(line);
     } else {
-      flushList();
-      paragraph.push(line.trim());
+      flushTable();
+      if (!line.trim()) {
+        flushParagraph(); flushList(); flushQuote();
+      } else if (heading) {
+        flushAll();
+        const level = heading[1].length;
+        const title = heading[2].trim();
+        const slug = slugify(title);
+        const count = headingCounts.get(slug) || 0;
+        headingCounts.set(slug, count + 1);
+        blocks.push(`<h${level} id="${escapeHtml(count ? `${slug}-${count + 1}` : slug)}">${inline(title)}</h${level}>`);
+      } else if (/^\s*>\s?/.test(line)) {
+        flushParagraph(); flushList();
+        quoteLines.push(line.replace(/^\s*>\s?/, '').trim());
+      } else if (bullet || ordered) {
+        flushParagraph(); flushQuote();
+        const nextType = ordered ? 'ol' : 'ul';
+        if (listType && listType !== nextType) flushList();
+        listType = nextType;
+        list.push((bullet || ordered)[1]);
+      } else {
+        flushList(); flushQuote();
+        paragraph.push(line.trim());
+      }
     }
   });
-  if (inCode) blocks.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
-  flushParagraph();
-  flushList();
+  if (inCode) {
+    const index = blocks.length;
+    blocks.push(`<section class="markdown-code-block"><header class="markdown-code-header"><span>${escapeHtml(codeLanguage || 'Code')}</span><button type="button" data-copy-code="${index}">Copy code</button></header><pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre></section>`);
+  }
+  flushAll();
   return blocks.join('');
 }
 
+function bindMarkdownCodeButtons(container) {
+  container.querySelectorAll('[data-copy-code]').forEach(button => button.addEventListener('click', async () => {
+    const code = button.closest('.markdown-code-block').querySelector('code').dataset.fullCode
+      || button.closest('.markdown-code-block').querySelector('pre').textContent;
+    try {
+      await navigator.clipboard.writeText(code);
+      button.textContent = 'Copied';
+    } catch {
+      button.textContent = 'Copy unavailable';
+    }
+  }));
+  container.querySelectorAll('.markdown-code-block').forEach(block => {
+    const code = block.querySelector('code');
+    const fullCode = code.textContent;
+    code.dataset.fullCode = fullCode;
+    const lines = fullCode.split('\n');
+    if (lines.length <= 12 || block.querySelector('[data-expand-code]')) return;
+    code.textContent = lines.slice(0, 12).join('\n');
+    const expand = document.createElement('button');
+    expand.type = 'button';
+    expand.className = 'text-btn';
+    expand.dataset.expandCode = '';
+    expand.textContent = `Show all ${lines.length} lines`;
+    expand.addEventListener('click', () => openCodeDialog(fullCode));
+    block.appendChild(expand);
+  });
+}
+
+let codeDialogPages = [];
+let codeDialogPageIndex = 0;
+
+function openCodeDialog(code) {
+  const dialog = $('code-dialog');
+  dialog.showModal();
+  const maxCharacters = Math.max(12, Math.floor((dialog.clientWidth - 48) / 8));
+  const visualLines = String(code).split('\n').flatMap(line => {
+    if (!line) return [''];
+    const pieces = [];
+    for (let index = 0; index < line.length; index += maxCharacters) {
+      pieces.push(line.slice(index, index + maxCharacters));
+    }
+    return pieces;
+  });
+  const linesPerPage = Math.max(4, Math.floor((dialog.clientHeight - 130) / 20));
+  codeDialogPages = [];
+  for (let index = 0; index < visualLines.length; index += linesPerPage) {
+    codeDialogPages.push(visualLines.slice(index, index + linesPerPage).join('\n'));
+  }
+  codeDialogPageIndex = 0;
+  renderCodeDialogPage();
+}
+
+function renderCodeDialogPage() {
+  $('code-dialog-content').textContent = codeDialogPages[codeDialogPageIndex] || '';
+  const controls = $('code-dialog-controls');
+  const pageCount = Math.max(1, codeDialogPages.length);
+  controls.innerHTML = `<button type="button" class="btn btn-sm" data-code-prev ${codeDialogPageIndex === 0 ? 'disabled' : ''}>Previous</button><span aria-live="polite">Part ${codeDialogPageIndex + 1} of ${pageCount}</span><button type="button" class="btn btn-sm" data-code-next ${codeDialogPageIndex >= pageCount - 1 ? 'disabled' : ''}>Next</button>`;
+  controls.querySelector('[data-code-prev]').addEventListener('click', () => {
+    codeDialogPageIndex--;
+    renderCodeDialogPage();
+  });
+  controls.querySelector('[data-code-next]').addEventListener('click', () => {
+    codeDialogPageIndex++;
+    renderCodeDialogPage();
+  });
+}
+
+function renderNoteDetail() {
+  const note = notes.find(item => item.id === selectedNoteId);
+  const detail = $('note-detail');
+  releaseFitPaginator(detail.querySelector('.markdown-body'));
+  $('note-editor-empty').classList.toggle('hidden', Boolean(note));
+  if (!note) {
+    $('note-editor-empty').querySelector('strong').textContent = notes.length ? 'No matching notes' : 'No notes yet';
+    $('note-editor-empty').querySelector('span:last-child').textContent = notes.length
+      ? 'Try another search or create a note.'
+      : 'Create a note or generate one from a document.';
+  }
+  detail.classList.toggle('hidden', !note || ! $('note-form').classList.contains('hidden'));
+  if (!note || ! $('note-form').classList.contains('hidden')) return;
+  const headings = noteHeadings(note.body);
+  const date = new Date(note.updatedAt || note.createdAt || Date.now());
+  const toc = headings.length >= 3
+    ? `<details class="note-toc"><summary>On this page</summary><ul>${headings.map(item => `<li class="toc-level-${item.level}"><a href="#${escapeHtml(item.id)}">${escapeHtml(item.title)}</a></li>`).join('')}</ul></details>`
+    : '';
+  detail.innerHTML = `
+    <header class="note-detail-header">
+      <div><h2>${escapeHtml(note.title || 'Untitled note')}</h2>
+      <div class="note-detail-tags"><span class="pill">${escapeHtml(note.tag || 'General')}</span><span class="pill">${escapeHtml(note.unit || 'General')}</span>${normalizeNoteTags(note.tags).map(tag => `<span class="pill">${escapeHtml(tag)}</span>`).join('')}${note.aiGenerated ? '<span class="pill ai">AI generated</span>' : ''}</div>
+        <p class="note-card-meta">Edited ${escapeHtml(date.toLocaleString())}</p>
+      </div>
+      <div class="note-detail-actions">
+        <button class="btn btn-sm" type="button" data-note-edit="${escapeHtml(note.id)}">Edit</button>
+        <button class="btn btn-sm" type="button" data-note-pin="${escapeHtml(note.id)}" aria-pressed="${Boolean(note.pinned)}">${note.pinned ? 'Unpin' : 'Pin'}</button>
+        <button class="btn btn-sm" type="button" data-note-cards="${escapeHtml(note.id)}">Make flashcards</button>
+        <button class="btn btn-sm" type="button" data-note-quiz="${escapeHtml(note.id)}">Quiz me</button>
+        <button class="btn btn-sm" type="button" data-note-tutor="${escapeHtml(note.id)}">Ask tutor</button>
+        <button class="btn btn-sm" type="button" data-note-export="${escapeHtml(note.id)}">Export Markdown</button>
+        <button class="btn btn-sm" type="button" data-note-json="${escapeHtml(note.id)}">Export JSON</button>
+        <button class="icon-btn btn-danger" type="button" data-note-delete="${escapeHtml(note.id)}" aria-label="Delete note" title="Delete">×</button>
+      </div>
+    </header>
+    ${toc}
+    <div class="note-detail-body markdown-body">${renderMarkdown(note.body) || '<p class="hint">This note is empty. Edit it to add content.</p>'}</div>
+  `;
+  bindMarkdownCodeButtons(detail);
+  const markdown = detail.querySelector('.markdown-body');
+  if (markdown) paginateToFit(markdown, { label: 'Note section pages', itemHeight: 64 });
+  detail.querySelector('[data-note-edit]').addEventListener('click', () => openNoteForm(note.id));
+  detail.querySelector('[data-note-pin]').addEventListener('click', async () => {
+    note.pinned = !note.pinned;
+    note.updatedAt = Date.now();
+    await idbSet('notes', notes);
+    renderNotes();
+  });
+  detail.querySelector('[data-note-cards]').addEventListener('click', () => makeFlashcardsFromNote(note.id));
+  detail.querySelector('[data-note-quiz]').addEventListener('click', () => quizFromNote(note.id));
+  detail.querySelector('[data-note-tutor]').addEventListener('click', () => askTutorAboutNote(note.id));
+  detail.querySelector('[data-note-export]').addEventListener('click', () => exportNoteMarkdown(note));
+  detail.querySelector('[data-note-json]').addEventListener('click', () => downloadJSON(note, `${safeFileName(note.title || 'note')}.json`));
+  detail.querySelector('[data-note-delete]').addEventListener('click', () => deleteNoteWithUndo(note.id));
+}
+
+function selectNote(id) {
+  if (!notes.some(note => note.id === id)) return;
+  selectedNoteId = id;
+  $('notes-workspace').classList.add('mobile-detail-open');
+  $('notes-back-btn').classList.remove('hidden');
+  $('note-form').classList.add('hidden');
+  renderNotes();
+}
+
 function renderNotePreview() {
-  const title = $('note-title').value.trim();
-  const body = $('note-body').value;
-  $('note-preview').innerHTML = `${title ? `<h2>${escapeHtml(title)}</h2>` : ''}${renderMarkdown(body) || '<p class="hint">Your formatted note preview will appear here.</p>'}`;
+  if (!editingNoteId) return;
+  const note = notes.find(item => item.id === editingNoteId);
+  if (!note) return;
+  note.title = $('note-title').value.trim();
+  note.tag = $('note-tag').value.trim();
+  note.unit = $('note-unit').value.trim();
+  note.tags = normalizeNoteTags($('note-tags-input').value);
+  note.body = cleanNoteBody($('note-body').value);
+  note.updatedAt = Date.now();
+  $('note-save-status').textContent = 'Unsaved changes';
+  clearTimeout(noteAutosaveTimer);
+  noteAutosaveTimer = setTimeout(saveNote, 650);
 }
 
 function openNoteForm(id) {
+  let note = notes.find(item => item.id === id);
+  if (!note) {
+    const now = Date.now();
+    note = { id: uid(), title: '', tag: '', unit: '', tags: [], body: '', aiGenerated: false, createdAt: now, updatedAt: now };
+    notes.push(note);
+  }
+  selectedNoteId = note.id;
+  editingNoteId = note.id;
+  $('notes-workspace').classList.add('mobile-detail-open');
+  $('notes-back-btn').classList.remove('hidden');
   $('note-form').classList.remove('hidden');
-  $('note-editor-empty').classList.add('hidden');
-  editingNoteId = id || null;
-  const n = notes.find(note => note.id === id);
-  $('note-title').value = n?.title || '';
-  $('note-tag').value = n?.tag || '';
-  $('note-unit').value = n?.unit || '';
-  $('note-body').value = n?.body || '';
-  renderNotePreview();
+  $('note-detail').classList.add('hidden');
+  $('note-title').value = note.title || '';
+  $('note-tag').value = note.tag || '';
+  $('note-unit').value = note.unit || '';
+  $('note-tags-input').value = normalizeNoteTags(note.tags).join(', ');
+  $('note-body').value = cleanNoteBody(note.body);
+  $('note-save-status').textContent = 'Saved';
+  renderNotes();
   $('note-title').focus();
 }
+
+async function saveNote() {
+  clearTimeout(noteAutosaveTimer);
+  if (!editingNoteId) return;
+  const note = notes.find(item => item.id === editingNoteId);
+  if (!note) return;
+  note.title = $('note-title').value.trim();
+  note.tag = $('note-tag').value.trim();
+  note.unit = $('note-unit').value.trim();
+  note.tags = normalizeNoteTags($('note-tags-input').value);
+  note.body = cleanNoteBody($('note-body').value);
+  note.updatedAt = Date.now();
+  await idbSet('notes', notes);
+  $('note-save-status').textContent = 'Saved';
+  updateStudyMaterialIndex();
+  renderTaxonomy();
+  renderNoteListOnly();
+}
+
+function renderNoteListOnly() {
+  renderNotes();
+}
+
 function closeNoteForm() {
+  if (editingNoteId) saveNote();
   $('note-form').classList.add('hidden');
-  $('note-editor-empty').classList.remove('hidden');
   editingNoteId = null;
+  renderNotes();
 }
-function saveNote() {
-  const title = $('note-title').value.trim();
-  const tag = $('note-tag').value.trim();
-  const unit = $('note-unit').value.trim();
-  const body = $('note-body').value.trim();
-  if (!title && !body) return;
-  if (editingNoteId) {
-    const n = notes.find(note => note.id === editingNoteId);
-    if (n) { n.title = title; n.tag = tag; n.unit = unit; n.body = body; n.updatedAt = Date.now(); }
-  } else {
-    notes.push({ id: uid(), title, tag, unit, body, aiGenerated: false, createdAt: Date.now(), updatedAt: Date.now() });
+
+function safeFileName(value) {
+  return String(value).trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').slice(0, 80) || 'note';
+}
+
+function exportNoteMarkdown(note) {
+  const content = `# ${note.title || 'Untitled note'}\n\n${note.body || ''}\n`;
+  downloadText(content, `${safeFileName(note.title || 'note')}.md`, 'text/markdown');
+}
+
+function downloadText(content, name, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+let deletedNoteUndo = null;
+let deletedNoteUndoTimer = null;
+async function deleteNoteWithUndo(id) {
+  const note = notes.find(item => item.id === id);
+  if (!note) return;
+  deletedNoteUndo = note;
+  notes = notes.filter(item => item.id !== id);
+  selectedNoteId = notes.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0]?.id || null;
+  await idbSet('notes', notes);
+  renderNotes();
+  $('notes-action-message').textContent = 'Note deleted.';
+  const undo = $('note-undo-delete');
+  undo.classList.remove('hidden');
+  undo.onclick = async () => {
+    if (deletedNoteUndo) notes.push(deletedNoteUndo);
+    deletedNoteUndo = null;
+    clearTimeout(deletedNoteUndoTimer);
+    undo.classList.add('hidden');
+    $('notes-action-message').textContent = 'Note restored.';
+    await idbSet('notes', notes);
+    renderNotes();
+  };
+  clearTimeout(deletedNoteUndoTimer);
+  deletedNoteUndoTimer = setTimeout(() => {
+    deletedNoteUndo = null;
+    $('note-undo-delete').classList.add('hidden');
+  }, 8000);
+}
+
+async function makeFlashcardsFromNote(id) {
+  const note = notes.find(item => item.id === id);
+  if (!note?.body.trim()) return;
+  setStatus('notes-ai-status', 'Generating flashcards from note...');
+  try {
+    const data = await callAI('/api/generate-flashcards', { document: {
+      title: note.title || 'Study note', course: note.tag || 'General',
+      unit: note.unit || 'General', text: truncateText(note.body, 14000)
+    } });
+    const generated = Array.isArray(data.cards) ? data.cards : [];
+    generated.filter(card => card && typeof card.front === 'string' && typeof card.back === 'string')
+      .forEach(card => cards.push({
+        id: uid(), front: card.front.trim(), back: card.back.trim(),
+        subject: note.tag || '', unit: note.unit || '',
+        format: ['basic', 'definition', 'fill_blank'].includes(card.format) ? card.format : 'basic',
+        aiGenerated: true, sourceNoteId: note.id, sourceNoteTitle: note.title || 'Study note',
+        mastered: false, createdAt: Date.now()
+      }));
+    await idbSet('cards', cards);
+    activatePage('cards');
+    renderEverything();
+    setStatus('cards-ai-status', `Added ${generated.length} cards from ${note.title || 'your note'}.`);
+  } catch (error) {
+    setStatus('notes-ai-status', error.message || 'Could not generate flashcards.');
   }
-  closeNoteForm();
-  idbSet('notes', notes);
-  renderEverything();
 }
+
+async function quizFromNote(id) {
+  const note = notes.find(item => item.id === id);
+  if (!note?.body.trim()) return;
+  setStatus('notes-ai-status', 'Preparing a quiz from note...');
+  try {
+    const data = await callAI('/api/generate-quiz', { document: {
+      id: note.id, title: note.title || 'Study note', course: note.tag || 'General',
+      unit: note.unit || 'General', text: truncateText(note.body, 14000)
+    } });
+    const questions = normalizeGeneratedQuestions(data.questions);
+    if (!questions.length) throw new Error('No complete quiz questions could be made from this note.');
+    renderQuiz({ id: note.id, title: note.title || 'Study note', course: note.tag, unit: note.unit }, questions);
+    activatePage('quiz');
+  } catch (error) {
+    setStatus('notes-ai-status', error.message || 'Could not create a quiz from this note.');
+  }
+}
+
+function askTutorAboutNote(id) {
+  const note = notes.find(item => item.id === id);
+  if (!note) return;
+  activatePage('tutor');
+  $('tutor-use-material').checked = true;
+  localStorage.setItem(TUTOR_MATERIAL_KEY, 'true');
+  $('settings-tutor-material').checked = true;
+  $('tutor-study-scope').value = 'all';
+  $('chat-input').value = `Help me understand the main ideas in my note "${note.title || 'Untitled note'}".`;
+  $('chat-input').focus();
+}
+
 async function generateNotesFromDocument() {
   const doc = documents.find(d => d.id === $('notes-doc-select').value);
   if (!doc) return setStatus('notes-ai-status', 'Upload a document first. (No document selected)');
@@ -1480,11 +2414,11 @@ async function generateNotesFromDocument() {
   try {
     const data = await callAI('/api/generate-notes', { document: aiDocumentPayload(doc) });
     const bodyParts = [
-      typeof data.summary === 'string' && data.summary.trim() ? `## Summary\n${data.summary.trim()}` : '',
+      typeof data.summary === 'string' && data.summary.trim() ? `## Summary\n${cleanNoteBody(data.summary).trim()}` : '',
       Array.isArray(data.keyConcepts) && data.keyConcepts.some(value => typeof value === 'string' && value.trim())
-        ? `## Key concepts\n${data.keyConcepts.filter(value => typeof value === 'string' && value.trim()).map(value => `- ${value.trim()}`).join('\n')}`
+        ? `## Key concepts\n${data.keyConcepts.filter(value => typeof value === 'string' && value.trim()).map(value => `- ${cleanNoteBody(value).trim()}`).join('\n')}`
         : '',
-      typeof data.body === 'string' && data.body.trim() ? `## Detailed notes\n${data.body.trim()}` : ''
+      typeof data.body === 'string' && data.body.trim() ? `## Detailed notes\n${cleanNoteBody(data.body).trim()}` : ''
     ].filter(Boolean);
     if (!bodyParts.length) throw new Error('The AI returned an empty note. Try again with a document that has more study content.');
     notes.push({
@@ -1492,13 +2426,14 @@ async function generateNotesFromDocument() {
       title: typeof data.title === 'string' && data.title.trim() ? data.title.trim() : `${doc.title} notes`,
       tag: doc.course,
       unit: doc.unit,
-      body: bodyParts.join('\n\n'),
+      body: cleanNoteBody(bodyParts.join('\n\n')),
       aiGenerated: true,
       sourceDocumentId: doc.id,
       sourceDocumentTitle: doc.title,
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
+    selectedNoteId = notes.at(-1).id;
     await idbSet('notes', notes);
     setStatus('notes-ai-status', 'AI note added.');
     renderEverything();
@@ -1690,13 +2625,31 @@ function gradeQuiz() {
       question: question.question,
       answer,
       correct: normalizeAnswer(answer) === normalizeAnswer(question.correctAnswer || question.answer),
-      topic: question.topic || question.question
+      topic: question.topic || question.question,
+      correctAnswer: question.correctAnswer || question.answer || '',
+      explanation: question.explanation || ''
     };
   });
   const correct = currentQuiz.results.filter(result => result.correct).length;
   const score = questions.length ? Math.round((correct / questions.length) * 100) : 0;
   currentQuiz.graded = true;
-  quizResults.push({ id: uid(), documentId: doc.id, course: doc.course, unit: doc.unit, score, correct, total: questions.length, takenAt: Date.now() });
+  quizResults.push({
+    id: uid(),
+    documentId: doc.id,
+    documentTitle: doc.title,
+    course: doc.course,
+    unit: doc.unit,
+    score,
+    correct,
+    total: questions.length,
+    mistakes: currentQuiz.results.filter(result => !result.correct).map(result => ({
+      question: result.question,
+      answer: result.answer,
+      correctAnswer: result.correctAnswer,
+      explanation: result.explanation
+    })),
+    takenAt: Date.now()
+  });
   idbSet('quizResults', quizResults);
   setStatus('quiz-status', `Score: ${correct}/${questions.length} (${score}%).`);
   renderProgress();
@@ -1715,11 +2668,19 @@ function renderQuizResults() {
       ${weakTopics.length ? `<div class="weak-topics"><strong>Topics to review</strong><ul>${weakTopics.map(result => `<li>${escapeHtml(result.topic)}</li>`).join('')}</ul></div>` : ''}
       <div class="row quiz-result-actions">
         ${weakTopics.length ? '<button class="btn btn-primary" id="mistakes-to-cards-btn">Make flashcards from mistakes</button>' : ''}
+        ${weakTopics.length ? '<button class="btn" id="quiz-mistakes-open">Review mistakes</button>' : ''}
         <button class="btn" id="retake-quiz-btn">Retake quiz</button>
-      </div>
+        </div>
     </section>
   `;
   $('mistakes-to-cards-btn')?.addEventListener('click', makeFlashcardsFromMistakes);
+  $('quiz-mistakes-open')?.addEventListener('click', () => {
+    const list = $('quiz-mistake-list');
+    list.innerHTML = weakTopics.map(result => `<li><strong>${escapeHtml(result.question)}</strong><span>Your answer: ${escapeHtml(result.answer || 'No answer')}</span><span>Correct answer: ${escapeHtml(result.correctAnswer || 'Not recorded')}</span>${result.explanation ? `<p>${escapeHtml(result.explanation)}</p>` : ''}</li>`).join('');
+    paginateToFit(list, { label: 'Quiz mistake pages', itemHeight: 72 });
+    $('quiz-mistakes-dialog').showModal();
+    requestAnimationFrame(() => paginateToFit(list, { label: 'Quiz mistake pages', itemHeight: 72 }));
+  });
   $('retake-quiz-btn').addEventListener('click', () => {
     currentQuiz.answers = Array(currentQuiz.questions.length).fill('');
     currentQuiz.index = 0;
@@ -1975,6 +2936,8 @@ function renderProgress() {
   $('session-list').innerHTML = recent.slice(0, 8).map(s => `
     <div class="list-row"><div><h4>${escapeHtml(s.course || 'General')} - ${escapeHtml(s.unit || 'General')}</h4><p>${Math.round(s.seconds / 60)} minutes on ${new Date(s.completedAt).toLocaleDateString()}</p></div></div>
   `).join('') || '<div class="empty-state">No sessions this week.</div>';
+  paginateToFit($('progress-list'), { label: 'Course progress pages', itemHeight: 86 });
+  paginateToFit($('session-list'), { label: 'Study session pages', itemHeight: 62 });
 }
 
 function downloadJSON(data, filename) {
@@ -2112,6 +3075,9 @@ function renderEverything() {
   renderDashboard();
   renderProgress();
   renderTutorOverview();
+  renderTutorScopeOptions();
+  renderReminderBadge();
+  updateStudyMaterialIndex();
 }
 
 $('upload-doc-btn').addEventListener('click', addDocument);
@@ -2152,6 +3118,20 @@ uploadDropzone.addEventListener('drop', event => {
 });
 ['doc-search', 'doc-sort', 'doc-filter'].forEach(id => $(id).addEventListener('input', renderDocuments));
 $('active-doc-select').addEventListener('change', e => previewDocument(e.target.value));
+$('document-list-view').addEventListener('click', () => {
+  $('panel-documents').classList.remove('show-document-reader');
+  $('document-list-view').classList.add('active');
+  $('document-list-view').setAttribute('aria-pressed', 'true');
+  $('document-reader-view').classList.remove('active');
+  $('document-reader-view').setAttribute('aria-pressed', 'false');
+});
+$('document-reader-view').addEventListener('click', () => {
+  $('panel-documents').classList.add('show-document-reader');
+  $('document-list-view').classList.remove('active');
+  $('document-list-view').setAttribute('aria-pressed', 'false');
+  $('document-reader-view').classList.add('active');
+  $('document-reader-view').setAttribute('aria-pressed', 'true');
+});
 $('open-doc-btn').addEventListener('click', () => $('active-doc-select').value && openRawDocument($('active-doc-select').value));
 $('original-text-toggle').addEventListener('click', () => {
   const doc = documents.find(item => item.id === currentPreviewDocId);
@@ -2167,8 +3147,61 @@ $('doc-progress').addEventListener('input', e => {
   renderProgress();
   renderDocuments();
 });
+$('document-page-prev').addEventListener('click', () => changeDocumentPage(documentPageIndex - 1));
+$('document-page-next').addEventListener('click', () => changeDocumentPage(documentPageIndex + 1));
+$('document-page-jump').addEventListener('change', event => {
+  const page = Number(event.target.value);
+  if (!Number.isInteger(page) || page < 1 || page > documentTextPages.length) {
+    event.target.value = String(documentPageIndex + 1);
+    return;
+  }
+  changeDocumentPage(page - 1);
+});
+if (typeof ResizeObserver !== 'undefined') {
+  const documentPreviewObserver = new ResizeObserver(() => {
+    if (!currentPreviewDocId) return;
+    const previousPage = documentPageIndex;
+    documentTextPages = splitDocumentPages($('doc-preview').dataset.fullText || '', $('doc-preview'));
+    documentPageIndex = Math.min(previousPage, documentTextPages.length - 1);
+    renderDocumentPage();
+  });
+  documentPreviewObserver.observe($('doc-preview'));
+}
 $('chat-send').addEventListener('click', sendChat);
 $('access-token-input').value = localStorage.getItem(ACCESS_TOKEN_KEY) || '';
+function updateTokenVisibilityButton(showing) {
+  $('toggle-access-token-btn').setAttribute('aria-label', showing ? 'Hide access token' : 'Show access token');
+  $('toggle-access-token-btn').innerHTML = showing
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a14 14 0 0 1-3.1 3.8M6.2 6.2C3.5 8 2 12 2 12s3.5 7 10 7a10.7 10.7 0 0 0 3-.4"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+}
+$('toggle-access-token-btn').addEventListener('click', () => {
+  const input = $('access-token-input');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  updateTokenVisibilityButton(!showing);
+});
+$('copy-access-token-btn').addEventListener('click', async () => {
+  const token = $('access-token-input').value;
+  if (!token) {
+    setStatus('access-token-status', 'Enter a token before copying.');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(token);
+    setStatus('access-token-status', 'Access token copied to clipboard.');
+  } catch {
+    setStatus('access-token-status', 'Clipboard access is unavailable in this browser.');
+  }
+});
+function maskAccessToken() {
+  $('access-token-input').type = 'password';
+  updateTokenVisibilityButton(false);
+}
+window.addEventListener('blur', maskAccessToken);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) maskAccessToken();
+});
 $('save-access-token-btn').addEventListener('click', () => {
   const token = $('access-token-input').value.trim();
   if (!token) {
@@ -2181,12 +3214,14 @@ $('save-access-token-btn').addEventListener('click', () => {
 });
 $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
 $('open-add-card-btn').addEventListener('click', () => openCardForm());
+$('card-course-filter').addEventListener('change', renderCardList);
 $('close-card-dialog').addEventListener('click', () => $('card-dialog').close());
 $('cancel-card-dialog').addEventListener('click', () => $('card-dialog').close());
 $('card-dialog').addEventListener('close', resetCardForm);
 $('add-card-btn').addEventListener('click', saveCard);
 $('card-unit-filter').addEventListener('change', renderCardList);
 $('card-mastery-filter').addEventListener('change', renderCardList);
+$('card-search').addEventListener('input', renderCardList);
 $('generate-cards-btn').addEventListener('click', generateFlashcardsFromDocument);
 $('export-cards-btn').addEventListener('click', () => downloadJSON(cards, 'margin-flashcards.json'));
 $('import-cards-btn').addEventListener('click', () => $('import-cards-file').click());
@@ -2197,16 +3232,36 @@ $('import-cards-file').addEventListener('change', e => readJSONFile(e.target.fil
     renderEverything();
   }
 }));
-$('start-card-study-btn').addEventListener('click', startCardStudy);
+$('start-card-study-toolbar-btn').addEventListener('click', startCardStudy);
+$('cards-study').addEventListener('keydown', event => {
+  if (!studyDeck.length || event.target.matches('button, input, textarea, select')) return;
+  if (event.code === 'Space') {
+    event.preventDefault();
+    $('flip-card').click();
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    if (studyIndex < studyDeck.length) studyIndex++;
+    renderStudyCard();
+  } else if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    studyIndex = Math.max(0, studyIndex - 1);
+    renderStudyCard();
+  }
+});
 $('flip-card').addEventListener('click', () => {
   if (studyIndex >= studyDeck.length) return;
   studyFlipped = !studyFlipped;
   $('flip-card').classList.toggle('flipped', studyFlipped);
+  $('flip-card').setAttribute('aria-pressed', String(studyFlipped));
+  $('flip-card').setAttribute('aria-label', studyFlipped ? 'Answer shown. Press Space to show question.' : 'Question shown. Press Space to show answer.');
   $('flip-card').textContent = studyFlipped ? studyDeck[studyIndex].back : studyDeck[studyIndex].front;
 });
 $('card-got-it-btn').addEventListener('click', () => markStudyCard(true));
 $('card-again-btn').addEventListener('click', () => markStudyCard(false));
-$('card-study-exit-btn').addEventListener('click', () => $('cards-study').classList.add('hidden'));
+$('card-study-exit-btn').addEventListener('click', () => {
+  $('cards-study').classList.add('hidden');
+  $('start-card-study-toolbar-btn').focus();
+});
 $('generate-quiz-btn').addEventListener('click', generateQuiz);
 $('quiz-mode-one').addEventListener('click', () => {
   if (!currentQuiz || currentQuiz.graded) return;
@@ -2224,14 +3279,24 @@ $('new-note-btn').addEventListener('click', () => openNoteForm(null));
 $('cancel-note-btn').addEventListener('click', closeNoteForm);
 $('save-note-btn').addEventListener('click', saveNote);
 $('notes-search').addEventListener('input', renderNotes);
+$('notes-sort').addEventListener('change', renderNotes);
 $('note-title').addEventListener('input', renderNotePreview);
+$('note-tag').addEventListener('input', renderNotePreview);
+$('note-unit').addEventListener('input', renderNotePreview);
+$('note-tags-input').addEventListener('input', renderNotePreview);
 $('note-body').addEventListener('input', renderNotePreview);
+$('notes-back-btn').addEventListener('click', () => {
+  $('notes-workspace').classList.remove('mobile-detail-open');
+  $('notes-back-btn').classList.add('hidden');
+  $('notes-search').focus();
+});
 $('generate-notes-btn').addEventListener('click', generateNotesFromDocument);
 $('export-notes-btn').addEventListener('click', () => downloadJSON(notes, 'margin-notes.json'));
 $('import-notes-btn').addEventListener('click', () => $('import-notes-file').click());
 $('import-notes-file').addEventListener('change', e => readJSONFile(e.target.files[0], data => {
   if (Array.isArray(data)) {
-    data.forEach(n => notes.push({ id: uid(), title: n.title || '', tag: n.tag || '', unit: n.unit || '', body: n.body || '', aiGenerated: !!n.aiGenerated, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now() }));
+    data.forEach(n => notes.push({ id: uid(), title: n.title || '', tag: n.tag || '', unit: n.unit || '', tags: normalizeNoteTags(n.tags), body: cleanNoteBody(n.body), aiGenerated: !!n.aiGenerated, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now() }));
+    selectedNoteId = notes.at(-1)?.id || selectedNoteId;
     idbSet('notes', notes);
     renderEverything();
   }
@@ -2268,17 +3333,57 @@ $('import-all-data-file').addEventListener('change', async e => {
 $('add-class-btn').addEventListener('click', () => openClassForm());
 $('classes-add-assignment').addEventListener('click', () => openAssignmentForm());
 $('calendar-add-assignment').addEventListener('click', () => openAssignmentForm());
+$('classes-view-classes').addEventListener('click', () => {
+  classesView = 'classes';
+  renderClasses();
+});
+$('classes-view-assignments').addEventListener('click', () => {
+  classesView = 'assignments';
+  renderClasses();
+});
+$('classes-search').addEventListener('input', renderClasses);
 $('calendar-prev-week').addEventListener('click', () => {
-  calendarWeekOffset--;
+  calendarMonthOffset--;
   renderCalendar();
 });
 $('calendar-next-week').addEventListener('click', () => {
-  calendarWeekOffset++;
+  calendarMonthOffset++;
   renderCalendar();
 });
 $('calendar-this-week').addEventListener('click', () => {
-  calendarWeekOffset = 0;
+  calendarMonthOffset = 0;
   renderCalendar();
+});
+$('calendar-agenda-open').addEventListener('click', () => {
+  $('calendar-agenda-dialog').showModal();
+  renderCalendar();
+});
+$('calendar-agenda-close').addEventListener('click', () => $('calendar-agenda-dialog').close());
+$('calendar-day-close').addEventListener('click', () => $('calendar-day-dialog').close());
+$('calendar-day-dialog').addEventListener('click', event => {
+  const button = event.target.closest('[data-edit-assignment]');
+  if (!button) return;
+  $('calendar-day-dialog').close();
+  openAssignmentForm(button.dataset.editAssignment);
+});
+$('tutor-history-open').addEventListener('click', () => {
+  historyPageIndex = 0;
+  renderTutorHistory();
+  $('tutor-history-dialog').showModal();
+});
+$('tutor-history-close').addEventListener('click', () => $('tutor-history-dialog').close());
+$('reply-dialog-close').addEventListener('click', () => $('reply-dialog').close());
+$('code-dialog-close').addEventListener('click', () => $('code-dialog').close());
+$('quiz-mistakes-close').addEventListener('click', () => $('quiz-mistakes-dialog').close());
+$('clear-chat-btn').addEventListener('click', () => {
+  chatHistory = [];
+  chatPageIndex = 0;
+  historyPageIndex = 0;
+  renderTutorChatPage();
+  renderTutorOverview();
+});
+$('tutor-study-scope').addEventListener('change', () => {
+  $('tutor-study-scope').setAttribute('aria-label', 'Study material scope');
 });
 $('class-form').addEventListener('submit', event => {
   event.preventDefault();
@@ -2360,6 +3465,11 @@ async function init() {
   timerSessions = await idbGet('timerSessions') || [];
   classes = await idbGet('classes') || [];
   assignments = await idbGet('assignments') || [];
+  if (await idbGet(NOTE_CLEANUP_KEY) !== 1) {
+    notes = notes.map(note => ({ ...note, body: cleanNoteBody(note.body) }));
+    await idbSet('notes', notes);
+    await idbSet(NOTE_CLEANUP_KEY, 1);
+  }
   renderTimer();
   renderEverything();
   if (documents[0]) previewDocument(documents[0].id);

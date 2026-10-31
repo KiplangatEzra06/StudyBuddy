@@ -5,6 +5,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StudyBuddy - your study desk</title>
+  <meta name="theme-color" content="#f5f6fb">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <script>
     (() => {
       const theme = localStorage.getItem('studybuddy-theme') || 'system';
@@ -19,10 +23,23 @@
   <div class="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Main sidebar">
       <a class="brand" href="#" aria-label="StudyBuddy home">
-        <span class="brand-mark" aria-hidden="true">S</span>
-        <span>StudyBuddy</span>
+        <svg class="brand-logo-mark-only" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M10 19c8-4 15-3 22 1v25c-7-4-14-5-22-1zM32 20c7-4 14-5 22-1v25c-8-4-15-3-22 1zM32 20v25" fill="none" stroke="var(--color-accent)" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
+          <path d="m45 8 2.4 5 5.5.8-4 3.9.9 5.5-4.8-2.6-4.9 2.6.9-5.5-4-3.9 5.6-.8z" fill="var(--color-accent)"/>
+          <path d="M8 46v3a5 5 0 0 0 5 5h37a6 6 0 0 0 6-6v-2" fill="none" stroke="var(--color-text)" stroke-linecap="round" stroke-width="2.5"/>
+        </svg>
+        <svg class="brand-logo" viewBox="0 0 220 48" role="img" aria-labelledby="brand-title">
+          <title id="brand-title">StudyBuddy</title>
+          <g class="brand-logo-mark" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 12.5c8-4 16-3 23 1v25c-7-4-15-5-23-1z" stroke-width="2.5"/>
+            <path d="M30 13.5c7-4 15-5 23-1v25c-8-4-16-3-23 1z" stroke-width="2.5"/>
+            <path d="M30 14v24" stroke-width="2"/>
+            <path d="M39 5.5l2.2 4.7 5.1.6-3.8 3.5 1 5-4.5-2.5-4.5 2.5 1-5-3.8-3.5 5.1-.6z" fill="var(--color-accent)" stroke="none"/>
+            <path d="M4 35.5v4a3 3 0 0 0 3 3h42a4 4 0 0 0 4-4v-3" stroke-width="2"/>
+          </g>
+          <text x="66" y="33" class="brand-logo-word">StudyBuddy</text>
+        </svg>
       </a>
-      <p class="sidebar-label">YOUR WORKSPACE</p>
       <nav class="tabs" aria-label="Main navigation">
         <button class="tab" data-tab="dashboard" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="8" height="8" rx="2" /><rect x="13" y="3" width="8" height="5" rx="2" /><rect x="13" y="10" width="8" height="11" rx="2" /><rect x="3" y="13" width="8" height="8" rx="2" />
@@ -86,14 +103,17 @@
         <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation menu" aria-controls="sidebar" aria-expanded="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
         </button>
-        <div class="topbar-context">
-          <span class="topbar-kicker">YOUR STUDY SPACE</span>
-          <span class="offline-pill" id="net-pill">Your work saves in this browser</span>
+        <span class="topbar-page-title" id="topbar-page-title">Dashboard</span>
+        <div class="topbar-actions">
+          <button class="reminders-bell" id="reminders-bell" type="button" aria-label="Open calendar reminders">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+            <span class="reminders-count hidden" id="reminders-count" aria-hidden="true">0</span>
+          </button>
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5z" /></svg>
+            <span>Theme</span>
+          </button>
         </div>
-        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.5 15.5A8.5 8.5 0 0 1 8.5 3.5 8.5 8.5 0 1 0 20.5 15.5z" /></svg>
-          <span>Theme</span>
-        </button>
       </header>
 
       <main class="app" id="main-content">
@@ -153,23 +173,30 @@
               <p class="panel-sub">See your weekly class schedule and assignment deadlines in one place.</p>
               <div class="calendar-toolbar">
                 <div class="row">
-                  <button class="btn" id="calendar-prev-week" type="button" aria-label="Previous week">←</button>
-                  <button class="btn" id="calendar-this-week" type="button">This week</button>
-                  <button class="btn" id="calendar-next-week" type="button" aria-label="Next week">→</button>
+                  <button class="btn" id="calendar-prev-week" type="button" aria-label="Previous month">←</button>
+                  <button class="btn" id="calendar-this-week" type="button">This month</button>
+                  <button class="btn" id="calendar-next-week" type="button" aria-label="Next month">→</button>
                   <strong class="calendar-range" id="calendar-range" aria-live="polite"></strong>
                 </div>
                 <button class="btn btn-primary" id="calendar-add-assignment" type="button">Add assignment</button>
               </div>
-              <label class="reminder-setting">
-                <input type="checkbox" id="calendar-reminders-enabled">
-                <span><strong>Assignment reminders</strong><small>Show browser notifications for assignments with a reminder time. StudyBuddy must be open.</small></span>
-              </label>
-              <p class="status" id="calendar-reminder-status" role="status" aria-live="polite"></p>
-              <div class="calendar-week" id="calendar-week" aria-label="Weekly schedule"></div>
-              <section class="upcoming-section">
-                <h2 class="settings-heading">Upcoming assignments</h2>
+              <div class="calendar-options">
+                <button class="btn btn-sm" id="calendar-agenda-open" type="button">Upcoming assignments</button>
+                <label class="reminder-setting">
+                  <input type="checkbox" id="calendar-reminders-enabled">
+                  <span><strong>Assignment reminders</strong><small>Notifications while StudyBuddy is open.</small></span>
+                </label>
+                <p class="status" id="calendar-reminder-status" role="status" aria-live="polite"></p>
+              </div>
+              <div class="calendar-week" id="calendar-week" aria-label="Monthly schedule"></div>
+              <dialog class="editor-dialog fit-drawer" id="calendar-agenda-dialog" aria-labelledby="calendar-agenda-title">
+                <div class="dialog-header"><h2 id="calendar-agenda-title">Upcoming assignments</h2><button class="icon-btn dialog-close" id="calendar-agenda-close" type="button" aria-label="Close dialog">×</button></div>
                 <div class="item-list" id="calendar-assignment-list"></div>
-              </section>
+              </dialog>
+              <dialog class="editor-dialog fit-drawer" id="calendar-day-dialog" aria-labelledby="calendar-day-title">
+                <div class="dialog-header"><h2 id="calendar-day-title">Day schedule</h2><button class="icon-btn dialog-close" id="calendar-day-close" type="button" aria-label="Close day schedule">×</button></div>
+                <div id="calendar-day-events" data-fit-paginate data-fit-item-height="56" aria-label="Events for this day"></div>
+              </dialog>
             </section>
             <section class="panel hidden" id="panel-classes">
               <p class="panel-title">Classes</p>
@@ -177,12 +204,15 @@
               <div class="toolbar">
                 <button class="btn btn-primary" id="add-class-btn" type="button">Add class</button>
                 <button class="btn" id="classes-add-assignment" type="button">Add assignment</button>
+                <button class="btn btn-sm active" id="classes-view-classes" type="button" aria-pressed="true">Classes</button>
+                <button class="btn btn-sm" id="classes-view-assignments" type="button" aria-pressed="false">Assignments</button>
+                <input type="search" id="classes-search" placeholder="Filter this list" aria-label="Filter classes or assignments">
               </div>
-              <div class="item-list class-list" id="class-list"></div>
+              <div class="item-list class-list" id="class-list" data-fit-paginate data-fit-item-height="116" aria-label="Classes"></div>
               <div class="empty-state hidden" id="classes-empty">No classes yet. Add a class to organize your schedule.</div>
               <section class="upcoming-section">
                 <h2 class="settings-heading">Assignments</h2>
-                <div class="item-list" id="classes-assignment-list"></div>
+                <div class="item-list" id="classes-assignment-list" data-fit-paginate data-fit-item-height="100" aria-label="Assignments"></div>
                 <div class="empty-state hidden" id="assignments-empty">No assignments yet. Add one to track a due date.</div>
               </section>
               <dialog class="editor-dialog" id="class-dialog" aria-labelledby="class-dialog-title">
@@ -238,6 +268,10 @@
       <p class="panel-title">Documents</p>
       <p class="panel-sub">Upload PDF or TXT files, organize them by course and unit, and use extracted text for AI
         notes, flashcards, and quizzes.</p>
+      <div class="document-pane-switch" role="group" aria-label="Document workspace">
+        <button class="btn btn-sm active" id="document-list-view" type="button" aria-pressed="true">Documents</button>
+        <button class="btn btn-sm" id="document-reader-view" type="button" aria-pressed="false">Reader</button>
+      </div>
       <div class="split">
         <div>
           <label class="upload-dropzone" id="upload-dropzone" for="doc-file">
@@ -273,7 +307,7 @@
               <option value="favorites">Favorites</option>
             </select>
           </div>
-          <div class="item-list" id="doc-list"></div>
+          <div class="item-list" id="doc-list" data-fit-paginate data-fit-item-height="118" aria-label="Documents"></div>
           <div class="empty-state hidden" id="docs-empty">No documents yet. Upload a PDF or TXT to start.</div>
         </div>
         <div class="stack">
@@ -286,6 +320,12 @@
             <button type="button" class="text-toggle" id="original-text-toggle" aria-pressed="false" disabled>View original text</button>
           </div>
           <div class="doc-preview" id="doc-preview">Select a document to preview extracted text.</div>
+          <div class="document-page-controls" id="document-page-controls">
+            <button type="button" class="btn btn-sm" id="document-page-prev" aria-label="Previous document page">Previous</button>
+            <span id="document-page-indicator" aria-live="polite">Page 1 of 1</span>
+            <label>Go to page <input type="number" id="document-page-jump" min="1" value="1" aria-label="Go to document page"></label>
+            <button type="button" class="btn btn-sm" id="document-page-next" aria-label="Next document page">Next</button>
+          </div>
           <label class="hint">Reading progress
             <input type="range" id="doc-progress" class="doc-progress-range" min="0" max="100" value="0">
           </label>
@@ -301,17 +341,43 @@
       <div class="row">
         <input type="password" id="access-token-input" placeholder="Backend access token" autocomplete="off"
           aria-label="Backend access token">
-        <button class="btn" id="save-access-token-btn" type="button">Save token</button>
+        <button class="btn token-visibility-btn" id="toggle-access-token-btn" type="button" aria-label="Show access token">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+        <button class="btn" id="copy-access-token-btn" type="button">Copy</button>
+        <button class="btn btn-primary" id="save-access-token-btn" type="button">Save token</button>
         <span class="status" id="access-token-status"></span>
       </div>
+      <div class="tutor-study-controls">
+        <label><input type="checkbox" id="tutor-use-material" checked> Use my study material</label>
+        <select id="tutor-study-scope" aria-label="Study material scope">
+          <option value="all">All study material</option>
+        </select>
+        <button type="button" class="btn btn-sm" id="tutor-history-open">History</button>
+        <button type="button" class="btn btn-sm" id="clear-chat-btn">Clear chat history</button>
+      </div>
+      <p class="hint">When enabled, relevant excerpts from your local study material are sent with each question.</p>
       <div id="chat-log">
         <div class="chat-empty" id="chat-empty">Ask about a concept, a past-paper question, or get a worked example.
         </div>
       </div>
+      <div class="chat-page-controls" id="chat-page-controls" aria-live="polite"></div>
       <div class="chat-input-row">
         <textarea id="chat-input" placeholder="Type your question..." rows="1"></textarea>
         <button class="btn btn-primary" id="chat-send">Ask</button>
       </div>
+      <dialog class="editor-dialog fit-drawer" id="tutor-history-dialog" aria-labelledby="tutor-history-title">
+        <div class="dialog-header"><h2 id="tutor-history-title">Conversation history</h2><button class="icon-btn dialog-close" id="tutor-history-close" type="button" aria-label="Close history">×</button></div>
+        <div id="tutor-history-content"></div>
+        <div class="fit-page-controls" id="tutor-history-controls"></div>
+      </dialog>
+      <dialog class="editor-dialog reply-dialog" id="reply-dialog" aria-labelledby="reply-dialog-title">
+        <div class="dialog-header"><h2 id="reply-dialog-title">Full tutor reply</h2><button class="icon-btn dialog-close" id="reply-dialog-close" type="button" aria-label="Close full reply">×</button></div>
+        <pre id="reply-dialog-content"></pre>
+        <div class="fit-page-controls" id="reply-dialog-controls"></div>
+      </dialog>
     </section>
 
     <section class="panel hidden" id="panel-cards">
@@ -323,11 +389,14 @@
         <span class="status" id="cards-ai-status" role="status" aria-live="polite"></span>
       </div>
       <div class="toolbar flashcard-filters">
+        <input type="search" id="card-search" placeholder="Search flashcards" aria-label="Search flashcards">
+        <select id="card-course-filter" aria-label="Filter by course"><option value="all">All courses</option></select>
         <select id="card-unit-filter" aria-label="Filter by unit"><option value="all">All units</option></select>
         <select id="card-mastery-filter" aria-label="Filter by mastery">
           <option value="all">Any mastery</option><option value="learning">Still learning</option><option value="mastered">Mastered</option>
         </select>
         <button class="btn btn-primary" id="open-add-card-btn" type="button">Add card</button>
+        <button class="btn" id="start-card-study-toolbar-btn" type="button">Study</button>
       </div>
       <dialog class="editor-dialog" id="card-dialog" aria-labelledby="card-dialog-title">
         <div class="dialog-header">
@@ -356,17 +425,13 @@
         <button class="btn" id="import-cards-btn">Import deck</button>
         <input type="file" id="import-cards-file" accept=".json" class="hidden">
       </div>
-      <div class="deck-bar" id="deck-bar"></div>
-      <div class="card-list" id="card-list"></div>
+      <div class="card-list" id="card-list" data-fit-paginate data-fit-item-height="154" aria-label="Flashcards"></div>
       <div class="empty-state hidden" id="cards-empty">No cards yet. Add one manually or generate from a document.</div>
-      <div class="row card-actions-row">
-        <button class="btn btn-primary" id="start-card-study-btn">Study this deck</button>
-      </div>
       <div id="cards-study" class="hidden study-session">
         <div class="quiz-wrap">
           <div class="status" id="card-study-progress"></div>
-          <div class="flip-card" id="flip-card"></div>
-          <div class="hint">Tap the card to flip.</div>
+          <div class="flip-card" id="flip-card" tabindex="0" role="button" aria-label="Flashcard. Press Space to flip.">Study card</div>
+          <div class="hint">Space flips the card. Left and right arrows navigate.</div>
           <div class="row">
             <button class="btn" id="card-again-btn">Review again</button>
             <button class="btn btn-primary" id="card-got-it-btn">Got it</button>
@@ -392,6 +457,10 @@
       </div>
       <div id="quiz-area" class="stack"></div>
       <div class="empty-state" id="quiz-empty">Choose a document and generate a quiz.</div>
+      <dialog class="editor-dialog fit-drawer" id="quiz-mistakes-dialog" aria-labelledby="quiz-mistakes-title">
+        <div class="dialog-header"><h2 id="quiz-mistakes-title">Quiz mistakes</h2><button class="icon-btn dialog-close" id="quiz-mistakes-close" type="button" aria-label="Close quiz mistakes">×</button></div>
+        <ul class="quiz-mistake-list" id="quiz-mistake-list" data-fit-paginate data-fit-item-height="72" aria-label="Quiz mistakes"></ul>
+      </dialog>
     </section>
 
     <section class="panel hidden" id="panel-timer">
@@ -440,40 +509,53 @@
         <button class="btn btn-primary" id="generate-notes-btn">Generate from document</button>
         <span class="status" id="notes-ai-status" role="status" aria-live="polite"></span>
       </div>
-      <div class="toolbar">
-        <input type="text" id="notes-search" placeholder="Search notes">
+      <div class="toolbar notes-toolbar">
+        <input type="search" id="notes-search" placeholder="Search notes" aria-label="Search notes">
+        <select id="notes-sort" aria-label="Sort notes">
+          <option value="recent">Recently edited</option><option value="title">Title</option><option value="course">Course</option>
+        </select>
         <button class="btn btn-primary" id="new-note-btn">New note</button>
-        <button class="btn" id="export-notes-btn">Export notes</button>
+        <button class="btn" id="export-notes-btn">Export all notes</button>
         <button class="btn" id="import-notes-btn">Import notes</button>
         <input type="file" id="import-notes-file" accept=".json" class="hidden">
       </div>
-      <div class="notes-workspace">
+      <div class="notes-action-status" id="notes-action-status" role="status" aria-live="polite">
+        <span id="notes-action-message"></span><button class="btn btn-sm hidden" type="button" id="note-undo-delete">Undo delete</button>
+      </div>
+      <div class="notes-workspace" id="notes-workspace">
         <div class="notes-list-pane">
-          <div class="note-grid" id="note-grid"></div>
+          <div class="note-grid" id="note-grid" data-fit-paginate data-fit-item-height="110" aria-label="Notes"></div>
           <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" or generate one from a document.</div>
         </div>
-        <section class="notes-editor-pane" aria-label="Note editor and preview">
-          <div class="note-editor-empty" id="note-editor-empty">
+        <section class="notes-editor-pane" id="note-detail-pane" aria-label="Selected note">
+          <button class="btn notes-back-btn hidden" type="button" id="notes-back-btn">Back to notes</button>
+          <div class="note-editor-empty hidden" id="note-editor-empty">
             <span aria-hidden="true">✎</span>
             <strong>Choose a note to read or edit</strong>
             <span>Your formatted preview will appear here.</span>
           </div>
+          <article id="note-detail" class="note-detail hidden"></article>
           <div class="form-grid hidden" id="note-form">
             <input type="text" id="note-title" placeholder="Title">
             <div class="form-grid note-tags">
               <input type="text" id="note-tag" list="course-list" placeholder="Course or subject">
               <input type="text" id="note-unit" list="unit-list" placeholder="Unit">
             </div>
+            <input type="text" id="note-tags-input" class="wide" placeholder="Tags (comma-separated)" aria-label="Note tags, comma-separated">
             <textarea id="note-body" class="wide" placeholder="Write your note..."></textarea>
-            <div class="row wide">
-              <button class="btn btn-primary" id="save-note-btn">Save note</button>
-              <button class="btn" id="cancel-note-btn">Close editor</button>
+            <div class="note-edit-toolbar wide">
+              <span id="note-save-status" role="status" aria-live="polite">Saved</span>
+              <button class="btn btn-primary" id="save-note-btn" type="button">Save now</button>
+              <button class="btn" id="cancel-note-btn" type="button">Preview</button>
             </div>
-            <div class="note-preview-heading wide"><strong>Preview</strong><span>Formatted Markdown</span></div>
-            <div class="note-preview markdown-body wide" id="note-preview"></div>
           </div>
-        </div>
+        </section>
       </div>
+      <dialog class="editor-dialog code-dialog" id="code-dialog" aria-labelledby="code-dialog-title">
+        <div class="dialog-header"><h2 id="code-dialog-title">Code block</h2><button class="icon-btn dialog-close" id="code-dialog-close" type="button" aria-label="Close code block">×</button></div>
+        <pre><code id="code-dialog-content"></code></pre>
+        <div class="fit-page-controls" id="code-dialog-controls"></div>
+      </dialog>
     </section>
 
     <section class="panel hidden" id="panel-progress">
@@ -503,11 +585,11 @@
       <div class="split">
         <div>
           <h3 class="panel-title sub-panel-title">By course</h3>
-          <div class="item-list" id="progress-list"></div>
+          <div class="item-list" id="progress-list" data-fit-paginate data-fit-item-height="86" aria-label="Course progress"></div>
         </div>
         <div>
           <h3 class="panel-title sub-panel-title">Recent sessions</h3>
-          <div class="item-list" id="session-list"></div>
+          <div class="item-list" id="session-list" data-fit-paginate data-fit-item-height="62" aria-label="Study sessions"></div>
         </div>
       </div>
     </section>
@@ -533,6 +615,10 @@
           <option value="dark">Dark</option>
         </select>
       </label>
+      <div class="settings-divider"></div>
+      <h2 class="settings-heading">Tutor privacy</h2>
+      <p class="panel-sub">When “Use my study material” is on, relevant excerpts from your notes, documents, flashcards, quizzes, classes, assignments, and progress are sent to the configured AI provider with each Tutor question.</p>
+      <label class="theme-setting"><span><strong>Use study material by default</strong><small>Control whether retrieved excerpts accompany Tutor questions.</small></span><input type="checkbox" id="settings-tutor-material" checked></label>
     </section>
           </div>
           <aside class="tutor-aside" id="tutor-aside" aria-label="Tutor study overview">

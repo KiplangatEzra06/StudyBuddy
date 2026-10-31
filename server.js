@@ -131,6 +131,148 @@ function validateDocument(req, res) {
   };
 }
 
+function validateReferences(value, res) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 12) {
+    res.status(400).json({ error: 'References must be an array of at most 12 items.' });
+    return null;
+  }
+
+  let totalTextLength = 0;
+  const references = [];
+  for (const reference of value) {
+    if (!reference || typeof reference !== 'object' || Array.isArray(reference)) {
+      res.status(400).json({ error: 'Each reference must be an object.' });
+      return null;
+    }
+
+    const type = typeof reference.type === 'string' ? reference.type.trim() : '';
+    const normalizedType = ({ document: 'doc', flashcard: 'card' })[type.toLowerCase()] || type.toLowerCase();
+    if (!['note', 'doc', 'card', 'progress', 'assignment', 'class', 'session', 'quiz'].includes(normalizedType)) {
+      res.status(400).json({ error: 'Each reference must have a supported source type.' });
+      return null;
+    }
+
+    if (typeof reference.title !== 'string'
+      || reference.title.length > 200
+      || (normalizedType !== 'card' && !reference.title.trim())) {
+      res.status(400).json({ error: 'Each reference must have a valid title.' });
+      return null;
+    }
+    if (reference.course !== undefined
+      && (typeof reference.course !== 'string' || reference.course.length > 120)) {
+      res.status(400).json({ error: 'Each reference must have a valid course.' });
+      return null;
+    }
+    if (reference.sourceId !== undefined
+      && !((typeof reference.sourceId === 'string'
+        && reference.sourceId.trim().length > 0
+        && reference.sourceId.length <= 200)
+        || (typeof reference.sourceId === 'number' && Number.isFinite(reference.sourceId)))) {
+      res.status(400).json({ error: 'Each reference must have a valid source ID.' });
+      return null;
+    }
+    if (typeof reference.text !== 'string' || !reference.text.trim() || reference.text.length > 6000) {
+      res.status(400).json({ error: 'Each reference must contain text of at most 6000 characters.' });
+      return null;
+    }
+
+    totalTextLength += reference.text.length;
+    if (totalTextLength > 32000) {
+      res.status(400).json({ error: 'The reference material is too long.' });
+      return null;
+    }
+
+    references.push({
+      type,
+      normalizedType,
+      title: reference.title.trim(),
+      ...(reference.course !== undefined ? { course: reference.course.trim() } : {}),
+      ...(reference.sourceId !== undefined && normalizedType !== 'progress' ? { sourceId: reference.sourceId } : {}),
+      text: reference.text.trim()
+    });
+  }
+  return references;
+}
+
+function getReferenceLabel(reference) {
+  if (reference.normalizedType === 'card') return '[Card]';
+  if (reference.normalizedType === 'progress') return '[Progress]';
+  const sourceType = {
+    note: 'Note',
+    doc: 'Doc',
+    assignment: 'Assignment',
+    class: 'Class',
+    session: 'Session',
+    quiz: 'Quiz'
+  }[reference.normalizedType];
+  const safeTitle = reference.title.replace(/[\u0000-\u001f\u007f[\]]/g, ' ');
+  return `[${sourceType}: ${safeTitle}]`;
+}
+
+function normalizeGeneratedText(value) {
+  return value
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\"/g, '"');
+}
+
+function parseNotesMarkdown(text, document) {
+  const markdown = normalizeGeneratedText(text.trim())
+    .replace(/^```(?:markdown|md)?\s*/i, '')
+    .replace(/\s*```$/, '')
+    .trim();
+  const title = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim().replace(/[*_`]/g, '')
+    || `${document.title} notes`;
+  const headings = [...markdown.matchAll(/^##\s+(.+)$/gm)];
+  const sections = headings.map((heading, index) => ({
+    title: heading[1].trim().replace(/[*_`]/g, ''),
+    content: markdown.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? markdown.length).trim()
+  }));
+  const sectionContent = name => sections.find(section => section.title.toLowerCase() === name)?.content || '';
+  const summary = sectionContent('summary');
+  const conceptsText = sectionContent('key concepts');
+  const keyConcepts = conceptsText
+    .split(/\r?\n/)
+    .map(line => line.match(/^\s*(?:[-*+]|\d+[.)])\s+(.+)$/)?.[1]?.trim())
+    .filter(Boolean);
+  const studyNotes = sections.find(section => ['study notes', 'notes', 'detailed notes'].includes(section.title.toLowerCase()));
+  const body = studyNotes
+    ? studyNotes.content
+    : sections.filter(section => !['summary', 'key concepts'].includes(section.title.toLowerCase()))
+      .map(section => `## ${section.title}\n\n${section.content}`)
+      .join('\n\n') || markdown;
+
+  return {
+    title: normalizeGeneratedText(title).slice(0, 200),
+    summary: normalizeGeneratedText(summary).slice(0, 4000),
+    keyConcepts: keyConcepts.slice(0, 30).map(concept => normalizeGeneratedText(concept).slice(0, 1000)),
+    body: normalizeGeneratedText(body).slice(0, 12000)
+  };
+}
+
+function parseNotesResponse(text, document) {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !/^```(?:json)?\s*\{/i.test(trimmed)) {
+    return parseNotesMarkdown(trimmed, document);
+  }
+
+  const payload = parseJsonText(trimmed);
+  if (!payload || Array.isArray(payload) || typeof payload !== 'object'
+    || typeof payload.title !== 'string'
+    || typeof payload.summary !== 'string'
+    || !Array.isArray(payload.keyConcepts)
+    || !payload.keyConcepts.every(value => typeof value === 'string')
+    || typeof payload.body !== 'string') throw malformedJsonError();
+  return {
+    title: normalizeGeneratedText(payload.title.slice(0, 200)),
+    summary: normalizeGeneratedText(payload.summary.slice(0, 4000)),
+    keyConcepts: payload.keyConcepts.slice(0, 30).map(normalizeGeneratedText),
+    body: normalizeGeneratedText(payload.body.slice(0, 12000))
+  };
+}
+
 app.post('/api/ai', async (req, res) => {
   const input = typeof req.body.input === 'string' ? req.body.input.trim() : '';
   const history = Array.isArray(req.body.history) ? req.body.history : [];
@@ -138,14 +280,40 @@ app.post('/api/ai', async (req, res) => {
   if (input.length > 4000 || history.length > 40) {
     return res.status(400).json({ error: 'The question or conversation is too long.' });
   }
+  const references = validateReferences(req.body.references, res);
+  if (!references) return;
 
   const messages = history
     .filter(message => ['user', 'assistant'].includes(message?.role) && typeof message.content === 'string')
     .map(message => ({ role: message.role, content: message.content.slice(0, 4000) }));
   messages.push({ role: 'user', content: input });
+  const systemMessages = [{ role: 'system', content: prompts.tutor }];
+  if (references.length) {
+    const sourceMaterial = references.map(reference => ({
+      label: getReferenceLabel(reference),
+      course: reference.course,
+      text: reference.text
+    }));
+    const encodedSourceMaterial = JSON.stringify(sourceMaterial)
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e');
+    systemMessages.push({
+      role: 'system',
+      content: `${prompts.tutorReferences}\n\n<untrusted_reference_material>\n${encodedSourceMaterial}\n</untrusted_reference_material>`
+    });
+  }
   try {
-    const reply = await callOllama([{ role: 'system', content: prompts.tutor }, ...messages]);
-    res.json({ reply });
+    const reply = await callOllama([...systemMessages, ...messages]);
+    res.json({
+      reply,
+      sources: references.map(reference => ({
+        type: reference.type,
+        title: reference.title,
+        ...(reference.course !== undefined ? { course: reference.course } : {}),
+        ...(reference.sourceId !== undefined ? { sourceId: reference.sourceId } : {}),
+        label: getReferenceLabel(reference)
+      }))
+    });
   } catch (error) {
     sendAiError(res, error, 'Could not reach the AI tutor. Please try again.');
   }
@@ -156,19 +324,11 @@ app.post('/api/generate-notes', async (req, res) => {
   if (!document) return;
 
   try {
-    const payload = parseJsonText(await callOllama(getDocumentMessages(prompts.summarize, document)));
-    if (!payload || Array.isArray(payload) || typeof payload !== 'object'
-      || typeof payload.title !== 'string'
-      || typeof payload.summary !== 'string'
-      || !Array.isArray(payload.keyConcepts)
-      || !payload.keyConcepts.every(value => typeof value === 'string')
-      || typeof payload.body !== 'string') throw malformedJsonError();
-    res.json({
-      title: typeof payload.title === 'string' ? payload.title.slice(0, 200) : `${document.title} notes`,
-      summary: typeof payload.summary === 'string' ? payload.summary.slice(0, 4000) : '',
-      keyConcepts: Array.isArray(payload.keyConcepts) ? payload.keyConcepts.filter(value => typeof value === 'string').slice(0, 30) : [],
-      body: typeof payload.body === 'string' ? payload.body.slice(0, 12000) : ''
-    });
+    const notes = parseNotesResponse(
+      await callOllama(getDocumentMessages(prompts.summarize, document)),
+      document
+    );
+    res.json(notes);
   } catch (error) {
     sendAiError(res, error, 'Could not generate notes. Please try again.');
   }

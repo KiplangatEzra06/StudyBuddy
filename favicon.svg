@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <style>
+    :root{--bg:#f5f6fb;--accent:#5269d8;--ink:#242a3b}
+    @media(prefers-color-scheme:dark){:root{--bg:#202638;--accent:#a8b4ff;--ink:#edf0fb}}
+  </style>
+  <rect width="64" height="64" rx="18" fill="var(--bg)"/>
+  <path d="M10 19c8-4 15-3 22 1v25c-7-4-14-5-22-1zM32 20c7-4 14-5 22-1v25c-8-4-15-3-22 1zM32 20v25" fill="none" stroke="var(--accent)" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
+  <path d="m45 8 2.4 5 5.5.8-4 3.9.9 5.5-4.8-2.6-4.9 2.6.9-5.5-4-3.9 5.6-.8z" fill="var(--accent)"/>
+  <path d="M8 46v3a5 5 0 0 0 5 5h37a6 6 0 0 0 6-6v-2" fill="none" stroke="var(--ink)" stroke-linecap="round" stroke-width="2.5"/>
+</svg>
