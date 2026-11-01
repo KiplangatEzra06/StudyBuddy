@@ -204,13 +204,24 @@
               </div>
             </section>
             <section class="panel hidden" id="panel-calendar">
-              <p class="panel-title">Calendar</p>
-              <p class="panel-sub">See your weekly class schedule and assignment deadlines in one place.</p>
+              <div class="calendar-header-band">
+                <div class="calendar-heading">
+                  <p class="calendar-eyebrow">YOUR STUDY SCHEDULE</p>
+                  <h2 id="calendar-selected-title" aria-live="polite"></h2>
+                  <p class="calendar-selected-subtitle">Classes and assignment deadlines, all in one place.</p>
+                </div>
+                <div class="calendar-view-toggle" role="group" aria-label="Calendar view">
+                  <button type="button" data-calendar-view="day" aria-pressed="false">Day</button>
+                  <button type="button" data-calendar-view="week" aria-pressed="false">Week</button>
+                  <button type="button" data-calendar-view="month" aria-pressed="true">Month</button>
+                  <button type="button" data-calendar-view="year" aria-pressed="false">Year</button>
+                </div>
+              </div>
               <div class="calendar-toolbar">
                 <div class="row">
-                  <button class="btn" id="calendar-prev-week" type="button" aria-label="Previous month">←</button>
-                  <button class="btn" id="calendar-this-week" type="button">This month</button>
-                  <button class="btn" id="calendar-next-week" type="button" aria-label="Next month">→</button>
+                  <button class="btn" id="calendar-prev-week" type="button" aria-label="Previous period">←</button>
+                  <button class="btn" id="calendar-this-week" type="button">Today</button>
+                  <button class="btn" id="calendar-next-week" type="button" aria-label="Next period">→</button>
                   <strong class="calendar-range" id="calendar-range" aria-live="polite"></strong>
                 </div>
                 <button class="btn btn-primary" id="calendar-add-assignment" type="button">Add assignment</button>
@@ -223,7 +234,11 @@
                 </label>
                 <p class="status" id="calendar-reminder-status" role="status" aria-live="polite"></p>
               </div>
+              <div class="calendar-weekdays" id="calendar-weekdays" aria-hidden="true">
+                <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+              </div>
               <div class="calendar-week" id="calendar-week" aria-label="Monthly schedule"></div>
+              <button class="calendar-add-fab" id="calendar-add-fab" type="button" aria-label="Add assignment">+</button>
               <dialog class="editor-dialog fit-drawer" id="calendar-agenda-dialog" aria-labelledby="calendar-agenda-title">
                 <div class="dialog-header"><h2 id="calendar-agenda-title">Upcoming assignments</h2><button class="icon-btn dialog-close" id="calendar-agenda-close" type="button" aria-label="Close dialog">×</button></div>
                 <div class="item-list" id="calendar-assignment-list"></div>
@@ -231,6 +246,7 @@
               <dialog class="editor-dialog fit-drawer" id="calendar-day-dialog" aria-labelledby="calendar-day-title">
                 <div class="dialog-header"><h2 id="calendar-day-title">Day schedule</h2><button class="icon-btn dialog-close" id="calendar-day-close" type="button" aria-label="Close day schedule">×</button></div>
                 <div id="calendar-day-events" data-fit-paginate data-fit-item-height="56" aria-label="Events for this day"></div>
+                <button class="btn btn-primary calendar-day-add" id="calendar-day-add" type="button">Add assignment</button>
               </dialog>
             </section>
             <section class="panel hidden" id="panel-classes">
@@ -473,7 +489,6 @@
       </div>
       <section class="flashcard-view" id="flashcards-view-cards" role="tabpanel">
       <p class="status flashcard-storage-status" id="flashcards-storage-status" role="status" aria-live="polite"></p>
-      <div class="flashcard-deck-summary" id="flashcard-deck-summary" aria-label="Flashcard decks"></div>
       <div class="toolbar">
         <select id="flashcard-doc-select"></select>
         <button class="btn btn-primary" id="generate-cards-btn">Generate from document</button>
@@ -487,7 +502,6 @@
           <option value="all">Any mastery</option><option value="learning">Still learning</option><option value="mastered">Mastered</option>
         </select>
         <button class="btn btn-primary" id="open-add-card-btn" type="button">Add card</button>
-        <button class="btn" id="start-card-study-toolbar-btn" type="button">Study</button>
       </div>
       <dialog class="editor-dialog" id="card-dialog" aria-labelledby="card-dialog-title">
         <div class="dialog-header">
@@ -516,11 +530,18 @@
         <button class="btn" id="import-cards-btn">Import deck</button>
         <input type="file" id="import-cards-file" accept=".json" class="hidden">
       </div>
-      <div class="card-list" id="card-list" data-fit-paginate data-fit-item-height="154" aria-label="Flashcards"></div>
-      <div class="empty-state hidden" id="cards-empty">No cards yet. Add one manually or generate from a document.</div>
+      <div class="card-list deck-grid" id="card-list" aria-label="Flashcard decks"></div>
+      <div class="empty-state hidden" id="cards-empty">No decks yet. Add a card or generate cards to create your first deck.</div>
       <div id="cards-study" class="hidden study-session">
         <div class="quiz-wrap">
-          <div class="status" id="card-study-progress"></div>
+          <div class="study-deck-header">
+            <div>
+              <h2 id="study-deck-title"></h2>
+              <p class="status" id="card-study-progress" aria-live="polite"></p>
+            </div>
+            <div class="study-card-more" id="study-card-more"></div>
+            <button class="btn" id="card-study-exit-btn" type="button">Back to decks</button>
+          </div>
           <div class="card-study-progress-track" role="progressbar" aria-label="Study session progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <span id="card-study-progress-fill"></span>
           </div>
@@ -531,8 +552,7 @@
             <button class="btn" id="card-study-prev-btn" type="button" aria-label="Previous card">Previous</button>
             <button class="btn" id="card-again-btn">Review again</button>
             <button class="btn btn-primary" id="card-got-it-btn">Got it</button>
-            <button class="btn btn-secondary" id="card-study-next-btn" type="button" aria-label="Next card">Next</button>
-            <button class="btn btn-sm" id="card-study-exit-btn">End session</button>
+            <button class="btn btn-primary" id="card-study-next-btn" type="button" aria-label="Next card">Next</button>
           </div>
         </div>
       </div>

@@ -41,6 +41,7 @@ let chatHistory = [];
 let tutorConversations = [];
 let activeConversationId = null;
 let studyDeck = [];
+let studyDeckName = '';
 let studyIndex = 0;
 let studyFlipped = false;
 let studySessionResults = { mastered: 0, review: 0 };
@@ -69,6 +70,8 @@ let learningReviewLoading = false;
 let learningStatsLoading = false;
 let studyMaterialIndex = new Map();
 let calendarMonthOffset = 0;
+let calendarSelectedDateKey = '';
+let calendarView = 'month';
 let classesView = 'classes';
 let historyPageIndex = 0;
 let documentPageIndex = 0;
@@ -1361,41 +1364,100 @@ function renderClasses() {
 function renderCalendar() {
   const week = $('calendar-week');
   if (!week) return;
+  if (!calendarSelectedDateKey) calendarSelectedDateKey = localDateKey(new Date());
+  const selectedDate = new Date(`${calendarSelectedDateKey}T12:00:00`);
+  const todayKey = localDateKey(new Date());
   const selectedMonth = new Date();
   selectedMonth.setDate(1);
   selectedMonth.setMonth(selectedMonth.getMonth() + calendarMonthOffset);
-  const monthStart = new Date(selectedMonth);
-  monthStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
-  $('calendar-range').textContent = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(selectedMonth);
-  week.innerHTML = Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(monthStart);
-    date.setDate(monthStart.getDate() + index);
-    const dateKey = localDateKey(date);
-    const events = [];
-    classes.forEach(item => {
-      const days = Array.isArray(item.meetingDays) ? item.meetingDays.map(Number) : [];
-      if (!days.includes(date.getDay())) return;
-      const time = item.startTime ? `<time>${escapeHtml(item.startTime)}${item.endTime ? `–${escapeHtml(item.endTime)}` : ''}</time>` : '<time>Class</time>';
-      events.push({ time: item.startTime || '', html: `<div class="calendar-event class-event"><strong>${escapeHtml(item.name)}</strong>${time}${item.location ? `<span>${escapeHtml(item.location)}</span>` : ''}</div>` });
-    });
-    assignments.forEach(assignment => {
-      if (localDateKey(new Date(Number(assignment.dueAt))) !== dateKey) return;
-      events.push({ time: new Date(Number(assignment.dueAt)).toTimeString().slice(0, 5), html: `<div class="calendar-event assignment-event ${assignment.completed ? 'is-complete' : ''}"><span>${assignment.completed ? 'Completed' : 'Assignment'}</span><strong>${escapeHtml(assignment.title)}</strong><time>${escapeHtml(new Date(Number(assignment.dueAt)).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }))}</time><button type="button" data-edit-assignment="${escapeHtml(assignment.id)}">View assignment</button></div>` });
-    });
-    events.sort((a, b) => a.time.localeCompare(b.time));
-    const visibleEventLimit = window.innerHeight >= 900 ? 2 : 1;
-    const showDayButton = events.length > visibleEventLimit || window.innerWidth <= 768;
-    const todayClass = dateKey === localDateKey(new Date()) ? 'is-today' : '';
-    const outsideMonth = date.getMonth() !== selectedMonth.getMonth();
-    return `
-      <section class="calendar-day ${todayClass} ${outsideMonth ? 'outside-month' : ''}">
-        <header><span>${escapeHtml(WEEKDAY_NAMES[date.getDay()].slice(0, 3))}</span><strong>${date.getDate()}</strong></header>
-        <div class="calendar-day-events">${events.slice(0, visibleEventLimit).map(event => event.html).join('') || '<span class="calendar-no-events">No events</span>'}${showDayButton ? `<button type="button" class="calendar-more-events" data-calendar-more="${dateKey}">${events.length > visibleEventLimit ? `+${events.length - visibleEventLimit} more` : `View ${events.length} ${events.length === 1 ? 'event' : 'events'}`}</button>` : ''}</div>
-      </section>
-    `;
-  }).join('');
-  week.querySelectorAll('[data-edit-assignment]').forEach(button => button.addEventListener('click', () => openAssignmentForm(button.dataset.editAssignment)));
-  week.querySelectorAll('[data-calendar-more]').forEach(button => button.addEventListener('click', () => openCalendarDay(button.dataset.calendarMore)));
+  const weekdays = $('calendar-weekdays');
+  const viewButtons = document.querySelectorAll('[data-calendar-view]');
+  viewButtons.forEach(button => {
+    const active = button.dataset.calendarView === calendarView;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  week.dataset.view = calendarView;
+  weekdays.classList.toggle('hidden', calendarView === 'year' || calendarView === 'day');
+  weekdays.style.gridTemplateColumns = calendarView === 'day' ? '1fr' : '';
+  $('calendar-selected-title').textContent = formatCalendarHeading(selectedDate);
+
+  if (calendarView === 'year') {
+    const year = selectedDate.getFullYear();
+    $('calendar-range').textContent = String(year);
+    week.innerHTML = Array.from({ length: 12 }, (_, monthIndex) => {
+      const monthDate = new Date(year, monthIndex, 1, 12);
+      const monthStart = new Date(year, monthIndex, 1, 12);
+      monthStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
+      const days = Array.from({ length: 42 }, (_, index) => {
+        const date = new Date(monthStart);
+        date.setDate(monthStart.getDate() + index);
+        const dateKey = localDateKey(date);
+        const outsideMonth = date.getMonth() !== monthIndex;
+        const hasEvents = calendarEventsForDate(date).length > 0;
+        return `<button type="button" class="calendar-year-date ${outsideMonth ? 'outside-month' : ''} ${dateKey === todayKey ? 'is-today' : ''} ${dateKey === calendarSelectedDateKey ? 'is-selected' : ''} ${hasEvents ? 'has-events' : ''}" data-calendar-date="${dateKey}" aria-label="${escapeHtml(formatCalendarHeading(date))}${hasEvents ? ', events scheduled' : ''}">${date.getDate()}</button>`;
+      }).join('');
+      return `<section class="calendar-year-month"><h3>${escapeHtml(new Intl.DateTimeFormat(undefined, { month: 'long' }).format(monthDate))}</h3><div class="calendar-year-weekdays" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div><div class="calendar-year-dates">${days}</div></section>`;
+    }).join('');
+  } else {
+    let startDate;
+    let daysToRender;
+    if (calendarView === 'day') {
+      startDate = new Date(selectedDate);
+      daysToRender = 1;
+      $('calendar-range').textContent = new Intl.DateTimeFormat(undefined, { month: 'long', day: 'numeric', year: 'numeric' }).format(selectedDate);
+    } else if (calendarView === 'week') {
+      startDate = new Date(selectedDate);
+      startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
+      daysToRender = 7;
+      const endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      $('calendar-range').textContent = `${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(startDate)} – ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(endDate)}`;
+    } else {
+      startDate = new Date(selectedMonth);
+      startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
+      daysToRender = 42;
+      $('calendar-range').textContent = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(selectedMonth);
+    }
+    week.innerHTML = Array.from({ length: daysToRender }, (_, index) => {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + index);
+      const dateKey = localDateKey(date);
+      const events = calendarEventsForDate(date);
+      const visibleLimit = calendarView === 'month' ? 2 : 12;
+      const outsideMonth = calendarView === 'month' && date.getMonth() !== selectedMonth.getMonth();
+      const dayClasses = [
+        'calendar-day',
+        dateKey === todayKey ? 'is-today' : '',
+        dateKey === calendarSelectedDateKey ? 'is-selected' : '',
+        outsideMonth ? 'outside-month' : ''
+      ].filter(Boolean).join(' ');
+      const chips = events.slice(0, visibleLimit).map(event => calendarEventMarkup(event, dateKey)).join('');
+      const more = events.length > visibleLimit
+        ? `<button type="button" class="calendar-more-events" data-calendar-more="${dateKey}">+${events.length - visibleLimit}</button>`
+        : '';
+      return `<article class="${dayClasses}" data-calendar-cell="${dateKey}">
+        <div class="calendar-day-events" data-event-count="${events.length}">${chips}${more}</div>
+        <button type="button" class="calendar-date-number" data-calendar-date="${dateKey}" aria-label="Open ${escapeHtml(formatCalendarHeading(date))}">${date.getDate()}</button>
+      </article>`;
+    }).join('');
+  }
+  week.querySelectorAll('[data-edit-assignment]').forEach(button => button.addEventListener('click', event => {
+    event.stopPropagation();
+    openAssignmentForm(button.dataset.editAssignment);
+  }));
+  week.querySelectorAll('[data-calendar-more]').forEach(button => button.addEventListener('click', event => {
+    event.stopPropagation();
+    openCalendarDay(button.dataset.calendarMore);
+  }));
+  week.querySelectorAll('[data-calendar-date]').forEach(button => button.addEventListener('click', event => {
+    event.stopPropagation();
+    openCalendarDay(button.dataset.calendarDate);
+  }));
+  week.querySelectorAll('[data-calendar-cell]').forEach(cell => cell.addEventListener('click', event => {
+    if (event.target.closest('button')) return;
+    openCalendarDay(cell.dataset.calendarCell);
+  }));
   const upcoming = assignments.filter(assignment => !assignment.completed).sort((a, b) => Number(a.dueAt) - Number(b.dueAt));
   const container = $('calendar-assignment-list');
   container.innerHTML = upcoming.length
@@ -1406,16 +1468,83 @@ function renderCalendar() {
   syncReminderControls();
 }
 
+function shiftCalendarPeriod(direction) {
+  const selectedDate = new Date(`${calendarSelectedDateKey || localDateKey(new Date())}T12:00:00`);
+  if (calendarView === 'day' || calendarView === 'week') {
+    selectedDate.setDate(selectedDate.getDate() + direction * (calendarView === 'week' ? 7 : 1));
+  } else {
+    const monthDelta = direction * (calendarView === 'year' ? 12 : 1);
+    const day = selectedDate.getDate();
+    selectedDate.setDate(1);
+    selectedDate.setMonth(selectedDate.getMonth() + monthDelta);
+    const lastDay = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
+    selectedDate.setDate(Math.min(day, lastDay));
+  }
+  calendarSelectedDateKey = localDateKey(selectedDate);
+  const currentMonth = new Date();
+  calendarMonthOffset = (selectedDate.getFullYear() - currentMonth.getFullYear()) * 12
+    + selectedDate.getMonth() - currentMonth.getMonth();
+  renderCalendar();
+}
+
+function formatCalendarHeading(date) {
+  const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(date);
+  const month = new Intl.DateTimeFormat(undefined, { month: 'short' }).format(date);
+  const day = date.getDate();
+  const suffix = day % 100 >= 11 && day % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[day % 10] || 'th');
+  return `${weekday}, ${month} ${day}${suffix}`;
+}
+
+function calendarEventsForDate(date) {
+  const dateKey = localDateKey(date);
+  const events = classes
+    .filter(item => Array.isArray(item.meetingDays) && item.meetingDays.map(Number).includes(date.getDay()))
+    .map(item => ({
+      type: 'class',
+      title: item.name || 'Class',
+      time: item.startTime || '',
+      detail: [item.startTime && `${item.startTime}${item.endTime ? `–${item.endTime}` : ''}`, item.location].filter(Boolean).join(' · '),
+      past: dateKey < localDateKey(new Date())
+    }));
+  assignments.forEach(item => {
+    const dueAt = Number(item.dueAt);
+    if (!Number.isFinite(dueAt) || localDateKey(new Date(dueAt)) !== dateKey) return;
+    events.push({
+      type: 'assignment',
+      id: item.id,
+      title: item.title || 'Untitled assignment',
+      time: new Date(dueAt).toTimeString().slice(0, 5),
+      detail: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(dueAt)),
+      completed: Boolean(item.completed),
+      past: dueAt < Date.now()
+    });
+  });
+  return events.sort((a, b) => a.time.localeCompare(b.time));
+}
+
+function calendarEventMarkup(event, dateKey) {
+  const className = `calendar-event ${event.type}-event ${event.completed || event.past ? 'is-muted' : ''}`;
+  if (event.type === 'assignment') {
+    return `<button type="button" class="${className}" data-edit-assignment="${escapeHtml(event.id)}" aria-label="Edit ${escapeHtml(event.title)}"><span class="calendar-event-kind">${event.completed ? 'Completed' : 'Assignment'}</span><strong>${escapeHtml(event.title)}</strong><span class="calendar-event-time">${escapeHtml(event.detail)}</span></button>`;
+  }
+  return `<button type="button" class="${className}" data-calendar-more="${dateKey}" aria-label="View ${escapeHtml(event.title)}"><span class="calendar-event-kind">Class</span><strong>${escapeHtml(event.title)}</strong>${event.detail ? `<span class="calendar-event-time">${escapeHtml(event.detail)}</span>` : ''}</button>`;
+}
+
 function openCalendarDay(dateKey) {
   const date = new Date(`${dateKey}T12:00:00`);
-  const events = [
-    ...classes.filter(item => Array.isArray(item.meetingDays) && item.meetingDays.map(Number).includes(date.getDay()))
-      .map(item => `<article class="calendar-event class-event"><strong>${escapeHtml(item.name)}</strong><time>${escapeHtml(item.startTime || 'Class')}${item.endTime ? `–${escapeHtml(item.endTime)}` : ''}</time><span>${escapeHtml(item.location || item.instructor || '')}</span></article>`),
-    ...assignments.filter(item => localDateKey(new Date(Number(item.dueAt))) === dateKey)
-      .map(item => `<article class="calendar-event assignment-event"><strong>${escapeHtml(item.title)}</strong><time>${escapeHtml(formatDueDate(Number(item.dueAt)))}</time><button type="button" data-edit-assignment="${escapeHtml(item.id)}">View assignment</button></article>`)
-  ];
-  $('calendar-day-title').textContent = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(date);
+  calendarSelectedDateKey = dateKey;
+  const selectedMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  const currentMonth = new Date();
+  calendarMonthOffset = (selectedMonth.getFullYear() - currentMonth.getFullYear()) * 12
+    + selectedMonth.getMonth() - currentMonth.getMonth();
+  renderCalendar();
+  $('calendar-selected-title').textContent = formatCalendarHeading(date);
+  const events = calendarEventsForDate(date).map(event => event.type === 'assignment'
+    ? `<article class="calendar-event assignment-event ${event.completed ? 'is-muted' : ''}"><strong>${escapeHtml(event.title)}</strong><time>${escapeHtml(formatDueDate(Number(assignments.find(item => item.id === event.id)?.dueAt)))}</time><button type="button" data-edit-assignment="${escapeHtml(event.id)}">Edit assignment</button></article>`
+    : `<article class="calendar-event class-event"><strong>${escapeHtml(event.title)}</strong><time>${escapeHtml(event.detail || 'Class')}</time></article>`);
+  $('calendar-day-title').textContent = formatCalendarHeading(date);
   $('calendar-day-events').innerHTML = events.join('') || '<p>No events scheduled.</p>';
+  $('calendar-day-add').dataset.calendarAddDate = dateKey;
   paginateToFit($('calendar-day-events'), { label: 'Calendar day event pages', itemHeight: 56 });
   $('calendar-day-dialog').showModal();
   requestAnimationFrame(() => paginateToFit($('calendar-day-events'), { label: 'Calendar day event pages', itemHeight: 56 }));
@@ -1554,14 +1683,16 @@ function renderAssignmentClassOptions(selectedId = '') {
   $('assignment-class').value = classes.some(item => item.id === selectedId) ? selectedId : '';
 }
 
-function openAssignmentForm(id = null, classId = '') {
+function openAssignmentForm(id = null, classId = '', dueAt = null) {
   const assignment = assignments.find(item => item.id === id);
   editingAssignmentId = assignment?.id || null;
   $('assignment-dialog-title').textContent = assignment ? 'Edit assignment' : 'Add an assignment';
   $('save-assignment-btn').textContent = assignment ? 'Save changes' : 'Save assignment';
   $('assignment-title').value = assignment?.title || '';
   $('assignment-details').value = assignment?.details || '';
-  $('assignment-due').value = dateTimeInputValue(Number(assignment?.dueAt));
+  $('assignment-due').value = dateTimeInputValue(assignment
+    ? Number(assignment.dueAt)
+    : dueAt == null ? NaN : Number(dueAt));
   $('assignment-reminder').value = assignment?.reminderAt == null ? '' : dateTimeInputValue(Number(assignment.reminderAt));
   renderAssignmentClassOptions(assignment?.classId || classId);
   $('assignment-dialog').showModal();
@@ -2799,8 +2930,17 @@ function filteredCards() {
     (course === 'all' || (card.subject || 'General') === course)
     && (unit === 'all' || (card.unit || 'General') === unit)
     && (mastery === 'all' || (mastery === 'mastered' ? card.mastered : !card.mastered))
-    && (!query || `${card.front} ${card.back} ${card.subject} ${card.unit}`.toLocaleLowerCase().includes(query))
+    && (!query || `${card.front} ${card.back} ${card.subject} ${flashcardDeckName(card)} ${card.unit}`.toLocaleLowerCase().includes(query))
   );
+}
+
+function flashcardDeckKey(card) {
+  return card.deck_id == null ? `name:${card.subject || 'General'}` : `id:${card.deck_id}`;
+}
+
+function flashcardDeckName(card) {
+  const deck = decks.find(item => String(item.id) === String(card.deck_id));
+  return deck?.name || card.subject || 'General';
 }
 
 function renderCardFilters() {
@@ -2825,46 +2965,76 @@ function cardMarkup(card) {
         <span class="card-front" style="font-size:${cardFontSize(front)}">${renderInlineMarkdown(front)}</span>
         <span class="card-back" style="font-size:${cardFontSize(back)}">${renderInlineMarkdown(back)}</span>
       </button>
-      <details class="card-more">
-        <summary aria-label="More flashcard details">···</summary>
-        <div class="card-more-menu">
-          <span>Unit: ${escapeHtml(card.unit || 'General')}</span>
-          <span>Type: ${escapeHtml(cardLabel(card))}</span>
-          <span>${card.aiGenerated ? 'AI generated' : 'Added by you'}</span>
-          ${card.sourceDocumentTitle ? `<span>Source: ${escapeHtml(card.sourceDocumentTitle)}</span>` : ''}
-          <button type="button" data-edit-card="${escapeHtml(card.id)}">Edit card</button>
-          <button type="button" data-delete-card="${escapeHtml(card.id)}">Delete card</button>
-        </div>
-      </details>
+      ${cardMoreMarkup(card)}
     </article>
   `;
 }
 
-function renderCardList() {
-  const list = $('card-list');
-  const empty = $('cards-empty');
-  const fc = filteredCards().sort((a, b) => (a.subject || 'General').localeCompare(b.subject || 'General'));
-  if (fc.length === 0) { list.innerHTML = ''; empty.classList.remove('hidden'); return; }
-  empty.classList.add('hidden');
-  list.innerHTML = fc.map(cardMarkup).join('');
-  list.querySelectorAll('[data-flip-card]').forEach(button => button.addEventListener('click', () => {
-    const flipped = !button.classList.contains('flipped');
-    button.classList.toggle('flipped', flipped);
-    button.setAttribute('aria-pressed', String(flipped));
-    button.setAttribute('aria-label', flipped ? 'Show question' : 'Show answer');
-  }));
-  list.querySelectorAll('[data-delete-card]').forEach(btn => btn.addEventListener('click', async () => {
-    const card = cards.find(item => item.id === btn.dataset.deleteCard);
+function cardMoreMarkup(card) {
+  return `<details class="card-more">
+    <summary aria-label="More flashcard details">···</summary>
+    <div class="card-more-menu">
+      <span>Unit: ${escapeHtml(card.unit || 'General')}</span>
+      <span>Type: ${escapeHtml(cardLabel(card))}</span>
+      <span>${card.aiGenerated ? 'AI generated' : 'Added by you'}</span>
+      ${card.sourceDocumentTitle ? `<span>Source: ${escapeHtml(card.sourceDocumentTitle)}</span>` : ''}
+      <button type="button" data-edit-card="${escapeHtml(card.id)}">Edit card</button>
+      <button type="button" data-delete-card="${escapeHtml(card.id)}">Delete card</button>
+    </div>
+  </details>`;
+}
+
+function bindCardActions(container) {
+  container.querySelectorAll('[data-delete-card]').forEach(button => button.addEventListener('click', async () => {
+    const card = cards.find(item => item.id === button.dataset.deleteCard);
     if (!card) return;
     const confirmed = await confirmDeletion({
       title: 'Delete flashcard?',
       description: `Delete the question "${card.front}" and its answer?`,
       affected: 'This card will be removed from its course deck and future study sessions.'
     });
-    if (confirmed) await softDeleteRecords([{ collection: 'cards', ids: [card.id] }], 'Flashcard deleted.');
+    if (!confirmed) return;
+    await softDeleteRecords([{ collection: 'cards', ids: [card.id] }], 'Flashcard deleted.');
+    if (!$('cards-study').classList.contains('hidden')) {
+      studyDeck = studyDeck.filter(item => item.id !== card.id);
+      if (!studyDeck.length) {
+        exitCardStudy();
+      } else {
+        studyIndex = Math.min(studyIndex, studyDeck.length - 1);
+        renderStudyCard();
+      }
+    }
   }));
-  list.querySelectorAll('[data-edit-card]').forEach(btn => btn.addEventListener('click', () => openCardForm(btn.dataset.editCard)));
-  paginateToFit(list, { label: 'Flashcard pages', itemHeight: 154 });
+  container.querySelectorAll('[data-edit-card]').forEach(button => button.addEventListener('click', () => openCardForm(button.dataset.editCard)));
+}
+
+function renderCardList() {
+  const list = $('card-list');
+  const empty = $('cards-empty');
+  const fc = filteredCards();
+  if (fc.length === 0) { list.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  const groups = new Map();
+  fc.forEach(card => {
+    const key = flashcardDeckKey(card);
+    if (!groups.has(key)) groups.set(key, { name: flashcardDeckName(card), cards: [] });
+    groups.get(key).cards.push(card);
+  });
+  list.innerHTML = [...groups.entries()]
+    .sort((a, b) => a[1].name.localeCompare(b[1].name))
+    .map(([key, group]) => {
+      const due = group.cards.filter(card => {
+        const dueAt = new Date(card.dueAt || card.due_at).getTime();
+        return Number.isFinite(dueAt) && dueAt <= Date.now();
+      }).length;
+      return `<button type="button" class="deck-tile" data-study-deck="${escapeHtml(key)}">
+        <span class="deck-tile-icon" aria-hidden="true">▤</span>
+        <span class="deck-tile-copy"><strong>${escapeHtml(group.name)}</strong><span>${group.cards.length} ${group.cards.length === 1 ? 'card' : 'cards'}</span></span>
+        <span class="deck-tile-due">${due} due</span>
+        <span class="deck-tile-open">Study deck →</span>
+      </button>`;
+    }).join('');
+  list.querySelectorAll('[data-study-deck]').forEach(button => button.addEventListener('click', () => startCardStudy(button.dataset.studyDeck)));
 }
 function openCardForm(id = null) {
   const card = cards.find(item => item.id === id);
@@ -2916,6 +3086,10 @@ async function saveCard() {
   try {
     await saveFlashcardRecord(payload, existing?.id || null);
     await refreshFlashcardData();
+    if (!$('cards-study').classList.contains('hidden')) {
+      studyDeck = studyDeck.map(studyCard => cards.find(card => card.id === studyCard.id)).filter(Boolean);
+      renderStudyCard();
+    }
     $('card-dialog').close();
     resetCardForm();
     setStatus('flashcards-storage-status', existing ? 'Flashcard updated.' : 'Flashcard saved.');
@@ -2973,12 +3147,12 @@ async function generateFlashcardsFromDocument() {
   }
 }
 
-function startCardStudy() {
-  studyDeck = [...filteredCards()].sort((a, b) =>
-    (a.subject || 'General').localeCompare(b.subject || 'General')
-    || (a.front || '').localeCompare(b.front || '')
-  );
+function startCardStudy(deckKey) {
+  studyDeck = filteredCards()
+    .filter(card => flashcardDeckKey(card) === deckKey)
+    .sort((a, b) => (a.front || '').localeCompare(b.front || ''));
   if (studyDeck.length === 0) return;
+  studyDeckName = flashcardDeckName(studyDeck[0]);
   studyIndex = 0;
   studySessionResults = { mastered: 0, review: 0 };
   $('panel-cards').classList.add('studying');
@@ -2992,9 +3166,11 @@ function renderStudyCard() {
   const face = $('flip-card');
   const previous = $('card-study-prev-btn');
   const next = $('card-study-next-btn');
+  $('study-deck-title').textContent = studyDeckName;
   if (studyIndex >= studyDeck.length) {
     $('card-study-progress').textContent = 'Session complete.';
     face.classList.add('hidden');
+    $('study-card-more').replaceChildren();
     summary.classList.remove('hidden');
     summary.textContent = `You reviewed ${studyDeck.length} ${studyDeck.length === 1 ? 'card' : 'cards'}: ${studySessionResults.mastered} marked as known and ${studySessionResults.review} to review again.`;
     previous.disabled = studyDeck.length === 0;
@@ -3014,6 +3190,8 @@ function renderStudyCard() {
   face.setAttribute('aria-label', 'Question shown. Press Space to show answer.');
   face.innerHTML = `<span class="card-front">${renderInlineMarkdown(studyDeck[studyIndex].front)}</span><span class="card-back">${renderInlineMarkdown(studyDeck[studyIndex].back)}</span>`;
   face.style.setProperty('--study-card-font-size', cardFontSize(studyDeck[studyIndex].front));
+  $('study-card-more').innerHTML = cardMoreMarkup(studyDeck[studyIndex]);
+  bindCardActions($('study-card-more'));
   previous.disabled = studyIndex === 0;
   next.disabled = false;
   $('card-got-it-btn').disabled = false;
@@ -3021,6 +3199,11 @@ function renderStudyCard() {
   const percent = Math.round((studyIndex / studyDeck.length) * 100);
   progress.setAttribute('aria-valuenow', String(percent));
   $('card-study-progress-fill').style.width = `${percent}%`;
+}
+function exitCardStudy() {
+  $('cards-study').classList.add('hidden');
+  $('panel-cards').classList.remove('studying');
+  $('card-list').querySelector('[data-study-deck]')?.focus();
 }
 function navigateStudyCard(direction) {
   studyIndex = Math.max(0, Math.min(studyDeck.length, studyIndex + direction));
@@ -4991,7 +5174,6 @@ $('import-cards-file').addEventListener('change', async event => {
     event.target.value = '';
   }
 });
-$('start-card-study-toolbar-btn').addEventListener('click', startCardStudy);
 $('cards-study').addEventListener('keydown', event => {
   if (!studyDeck.length || event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
   if (event.code === 'Space' && (event.target === $('flip-card') || !event.target.matches('button, a'))) {
@@ -5016,11 +5198,7 @@ $('card-got-it-btn').addEventListener('click', () => markStudyCard(true));
 $('card-again-btn').addEventListener('click', () => markStudyCard(false));
 $('card-study-prev-btn').addEventListener('click', () => navigateStudyCard(-1));
 $('card-study-next-btn').addEventListener('click', () => navigateStudyCard(1));
-$('card-study-exit-btn').addEventListener('click', () => {
-  $('cards-study').classList.add('hidden');
-  $('panel-cards').classList.remove('studying');
-  $('start-card-study-toolbar-btn').focus();
-});
+$('card-study-exit-btn').addEventListener('click', exitCardStudy);
 $('generate-quiz-btn').addEventListener('click', generateQuiz);
 $('quiz-mode-one').addEventListener('click', () => {
   if (!currentQuiz || currentQuiz.graded) return;
@@ -5098,6 +5276,10 @@ $('import-all-data-file').addEventListener('change', async e => {
 $('add-class-btn').addEventListener('click', () => openClassForm());
 $('classes-add-assignment').addEventListener('click', () => openAssignmentForm());
 $('calendar-add-assignment').addEventListener('click', () => openAssignmentForm());
+$('calendar-add-fab').addEventListener('click', () => {
+  const selected = new Date(`${calendarSelectedDateKey || localDateKey(new Date())}T09:00:00`);
+  openAssignmentForm(null, '', selected.getTime());
+});
 $('classes-view-classes').addEventListener('click', () => {
   classesView = 'classes';
   renderClasses();
@@ -5107,17 +5289,21 @@ $('classes-view-assignments').addEventListener('click', () => {
   renderClasses();
 });
 $('classes-search').addEventListener('input', renderClasses);
-$('calendar-prev-week').addEventListener('click', () => {
-  calendarMonthOffset--;
-  renderCalendar();
-});
-$('calendar-next-week').addEventListener('click', () => {
-  calendarMonthOffset++;
-  renderCalendar();
-});
+$('calendar-prev-week').addEventListener('click', () => shiftCalendarPeriod(-1));
+$('calendar-next-week').addEventListener('click', () => shiftCalendarPeriod(1));
 $('calendar-this-week').addEventListener('click', () => {
   calendarMonthOffset = 0;
+  calendarSelectedDateKey = localDateKey(new Date());
   renderCalendar();
+});
+document.querySelectorAll('[data-calendar-view]').forEach(button => button.addEventListener('click', () => {
+  calendarView = button.dataset.calendarView;
+  renderCalendar();
+}));
+$('calendar-day-add').addEventListener('click', event => {
+  $('calendar-day-dialog').close();
+  const selected = new Date(`${event.currentTarget.dataset.calendarAddDate}T09:00:00`);
+  openAssignmentForm(null, '', selected.getTime());
 });
 $('calendar-agenda-open').addEventListener('click', () => {
   $('calendar-agenda-dialog').showModal();
