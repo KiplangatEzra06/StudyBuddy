@@ -731,13 +731,30 @@
       <div class="notes-action-status" id="notes-action-status" role="status" aria-live="polite">
         <span id="notes-action-message"></span><button class="btn btn-sm hidden" type="button" id="note-undo-delete">Undo delete</button>
       </div>
-      <div class="notes-workspace" id="notes-workspace">
+      <div id="notes-notebooks-view">
+        <div class="deck-grid" id="notes-notebook-grid" aria-label="Notebooks"></div>
+        <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" or generate one from a document.</div>
+      </div>
+      <div class="notes-search-results hidden" id="notes-search-results">
+        <div class="note-grid" id="notes-search-grid" aria-label="Matching notes"></div>
+        <div class="empty-state hidden" id="notes-search-empty">No notes match your search.</div>
+      </div>
+      <div class="notes-reader-nav hidden" id="notes-reader-nav">
+        <button class="btn" type="button" id="notes-back-btn">Back to notebooks</button>
+        <span class="notes-position" id="notes-position" aria-live="polite"></span>
+        <label class="notebook-note-picker-wrap">Choose note
+          <select id="notebook-note-select" aria-label="Choose a note in this notebook"></select>
+        </label>
+        <div class="row">
+          <button class="btn" id="notes-prev-btn" type="button">Previous</button>
+          <button class="btn btn-primary" id="notes-next-btn" type="button">Next</button>
+        </div>
+      </div>
+      <div class="notes-workspace hidden" id="notes-workspace">
         <div class="notes-list-pane">
-          <div class="note-grid" id="note-grid" data-fit-paginate data-fit-item-height="110" aria-label="Notes"></div>
-          <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" or generate one from a document.</div>
+          <div class="note-grid" id="notebook-note-list" aria-label="Notebook note titles"></div>
         </div>
         <section class="notes-editor-pane" id="note-detail-pane" aria-label="Selected note">
-          <button class="btn notes-back-btn hidden" type="button" id="notes-back-btn">Back to notes</button>
           <div class="note-editor-empty hidden" id="note-editor-empty">
             <span aria-hidden="true">✎</span>
             <strong>Choose a note to read or edit</strong>
