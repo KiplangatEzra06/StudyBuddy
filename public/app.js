@@ -1,7 +1,6 @@
 const DB_NAME = 'margin-db';
 const STORE = 'kv';
 const API_TIMEOUT_MS = 75000;
-const ACCESS_TOKEN_KEY = 'studybuddy-access-token';
 const TUTOR_MATERIAL_KEY = 'studybuddy-tutor-material';
 const NOTE_CLEANUP_KEY = 'studybuddy-note-cleanup-version';
 const BACKUP_FORMAT = 'studybuddy-data';
@@ -57,8 +56,9 @@ let chatWakeTimer = 0;
 let chatWakeMessage = '';
 let chatStreamingReply = '';
 let chatAtLatest = true;
-let tutorAuthRejected = false;
 let lastTutorQuestion = '';
+let appInitialization = null;
+let loginPending = false;
 let learningPreviewCards = [];
 let learningReviewCards = [];
 let learningReviewIndex = 0;
@@ -752,6 +752,96 @@ async function apiErrorMessage(response, fallback) {
     ? plainText
     : `${fallback} (${response.status}). Please try again.`;
 }
+function showLoginScreen(message = '') {
+  $('app-shell').classList.add('hidden');
+  $('auth-screen').classList.remove('hidden');
+  $('login-error').textContent = message;
+  $('login-password').value = '';
+  if (message) $('login-username').focus();
+}
+
+function showAuthenticatedApp() {
+  $('auth-screen').classList.add('hidden');
+  $('app-shell').classList.remove('hidden');
+}
+
+function initializeAuthenticatedApp() {
+  showAuthenticatedApp();
+  if (!appInitialization) {
+    appInitialization = init().catch(error => {
+      appInitialization = null;
+      console.error('StudyBuddy could not initialize after sign-in.', error);
+      showLoginScreen('Could not load your study desk. Please sign in again.');
+    });
+  }
+  return appInitialization;
+}
+
+async function checkAuthentication() {
+  try {
+    const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
+    if (!response.ok) throw new Error('Could not check the sign-in session.');
+    const result = await response.json();
+    if (result.authenticated === true) {
+      await initializeAuthenticatedApp();
+    } else {
+      showLoginScreen();
+    }
+  } catch {
+    showLoginScreen('Could not reach StudyBuddy. Check your connection and try again.');
+  }
+}
+
+$('login-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (loginPending) return;
+  loginPending = true;
+  const submit = $('login-submit');
+  submit.disabled = true;
+  submit.textContent = 'Signing in…';
+  $('login-error').textContent = '';
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'StudyBuddy'
+      },
+      body: JSON.stringify({
+        username: $('login-username').value,
+        password: $('login-password').value
+      })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      $('login-error').textContent = response.status === 429
+        ? result.error || 'Too many sign-in attempts. Please wait and try again.'
+        : response.status === 401
+          ? 'Incorrect username or password'
+          : result.error || 'Could not sign in right now. Please try again.';
+      return;
+    }
+    $('login-password').value = '';
+    await initializeAuthenticatedApp();
+  } catch {
+    $('login-error').textContent = 'Could not reach StudyBuddy. Check your connection and try again.';
+  } finally {
+    loginPending = false;
+    submit.disabled = false;
+    submit.textContent = 'Sign in';
+  }
+});
+
+$('toggle-login-password').addEventListener('click', () => {
+  const password = $('login-password');
+  const visible = password.type === 'text';
+  password.type = visible ? 'password' : 'text';
+  $('toggle-login-password').textContent = visible ? 'Show' : 'Hide';
+  $('toggle-login-password').setAttribute('aria-label', visible ? 'Show password' : 'Hide password');
+  $('toggle-login-password').setAttribute('aria-pressed', String(!visible));
+});
+
 async function apiFetch(path, options = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
@@ -760,13 +850,21 @@ async function apiFetch(path, options = {}) {
   if (externalSignal?.aborted) controller.abort(externalSignal.reason);
   else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
   try {
-    const accessToken = $('access-token-input')?.value || localStorage.getItem(ACCESS_TOKEN_KEY) || '';
-    return await fetch(path, {
+    const response = await fetch(path, {
       ...options,
-      headers: { ...options.headers, 'x-access-token': accessToken },
+      credentials: 'same-origin',
+      headers: { ...options.headers, 'X-Requested-With': 'StudyBuddy' },
       signal: controller.signal
     });
+    if (response.status === 401) {
+      showLoginScreen('Session expired, please sign in again');
+      const error = new Error('Session expired, please sign in again');
+      error.status = 401;
+      throw error;
+    }
+    return response;
   } catch (error) {
+    if (error.status === 401) throw error;
     if (externalSignal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError');
     const reason = error?.message || String(error || 'Unknown error');
     if (controller.signal.aborted) {
@@ -2074,14 +2172,6 @@ function addAssistantMsg(text, sources = [], container = $('chat-log'), messageD
     retry.textContent = 'Retry';
     retry.addEventListener('click', () => sendChat(messageData.retry, messageData.timestamp));
     retryRow.append(retry);
-    if (messageData.requiresToken) {
-      const addToken = document.createElement('button');
-      addToken.type = 'button';
-      addToken.className = 'text-btn';
-      addToken.textContent = 'Add token in Settings';
-      addToken.addEventListener('click', openTutorTokenSettings);
-      retryRow.append(addToken);
-    }
     message.append(retryRow);
     return message;
   }
@@ -2229,9 +2319,6 @@ function renderTutorChatPage() {
   if (note) note.textContent = $('tutor-use-material').checked
     ? 'Study material is on. Relevant excerpts may be sent with your question.'
     : 'Study material is off. Your questions are sent without local excerpts.';
-  $('tutor-token-prompt').classList.toggle('hidden', Boolean(
-    $('access-token-input')?.value.trim() || localStorage.getItem(ACCESS_TOKEN_KEY)
-  ));
   updateTutorConnectionStatus();
   $('chat-jump-latest').classList.toggle('hidden', chatAtLatest || chatHistory.length === 0);
   requestAnimationFrame(() => {
@@ -2492,12 +2579,6 @@ async function readTutorStream(response, onUpdate) {
 async function sendChat(retryQuestion = '', retryTimestamp = 0) {
   const q = (retryQuestion || $('chat-input').value).trim();
   if (!q || chatPending) return;
-  if (!$('access-token-input').value.trim() && !localStorage.getItem(ACCESS_TOKEN_KEY)) {
-    $('tutor-token-prompt').classList.remove('hidden');
-    updateTutorConnectionStatus('missing');
-    setChatRequestStatus('Add your AI access token in Settings before sending a question.');
-    return;
-  }
   if (retryTimestamp) {
     const failedIndex = chatHistory.findIndex(message => message.timestamp === retryTimestamp && message.retry);
     if (failedIndex >= 0) {
@@ -2593,21 +2674,20 @@ async function sendChat(retryQuestion = '', retryTimestamp = 0) {
       renderTutorOverview();
     } else {
       const status = Number(err.status) || 0;
-      const requiresToken = status === 401 || status === 403;
-      const message = requiresToken
-        ? 'Your access token was rejected. Check it in Settings.'
+      const message = status === 401
+        ? 'Session expired, please sign in again'
+        : status === 403
+          ? 'The request could not be verified. Reload the page and try again.'
         : status === 429
           ? 'Too many requests, wait a moment.'
           : status >= 500 || !status
             ? 'The tutor server is unavailable.'
             : err.message || 'The tutor could not answer. Please try again.';
-      if (requiresToken) updateTutorConnectionStatus('missing');
       chatHistory.push({
         role: 'assistant',
         content: message,
         retry: q,
         question: q,
-        requiresToken,
         timestamp: Date.now()
       });
       await persistTutorConversations();
@@ -4812,70 +4892,36 @@ if (typeof ResizeObserver !== 'undefined') {
   documentPreviewObserver.observe($('doc-preview'));
 }
 $('chat-send').addEventListener('click', () => sendChat());
-$('access-token-input').value = localStorage.getItem(ACCESS_TOKEN_KEY) || '';
-$('token-settings').open = !$('access-token-input').value;
-function updateTutorConnectionStatus(state) {
-  const tokenPresent = Boolean($('access-token-input')?.value.trim() || localStorage.getItem(ACCESS_TOKEN_KEY));
-  if (state === 'connected') tutorAuthRejected = false;
-  if (state === 'missing') tutorAuthRejected = true;
-  const connected = tokenPresent && !tutorAuthRejected;
-  $('tutor-connection-chip').textContent = connected ? 'Connected' : 'Token needed';
-  $('tutor-connection-chip').dataset.state = connected ? 'connected' : 'missing';
-  $('tutor-token-prompt').classList.toggle('hidden', connected);
-}
-function openTutorTokenSettings() {
-  activatePage('settings');
-  $('token-settings').open = true;
-  requestAnimationFrame(() => $('access-token-input').focus());
+function updateTutorConnectionStatus() {
+  $('tutor-connection-chip').textContent = 'Connected';
+  $('tutor-connection-chip').dataset.state = 'connected';
 }
 updateTutorConnectionStatus();
-$('access-token-input').addEventListener('input', () =>
-  updateTutorConnectionStatus($('access-token-input').value.trim() ? 'connected' : 'missing'));
-function updateTokenVisibilityButton(showing) {
-  $('toggle-access-token-btn').setAttribute('aria-label', showing ? 'Hide access token' : 'Show access token');
-  $('toggle-access-token-btn').innerHTML = showing
-    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a14 14 0 0 1-3.1 3.8M6.2 6.2C3.5 8 2 12 2 12s3.5 7 10 7a10.7 10.7 0 0 0 3-.4"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
-}
-$('toggle-access-token-btn').addEventListener('click', () => {
-  const input = $('access-token-input');
-  const showing = input.type === 'text';
-  input.type = showing ? 'password' : 'text';
-  updateTokenVisibilityButton(!showing);
-});
-$('copy-access-token-btn').addEventListener('click', async () => {
-  const token = $('access-token-input').value;
-  if (!token) {
-    setStatus('access-token-status', 'Enter a token before copying.');
-    return;
-  }
+$('logout-btn').addEventListener('click', async () => {
+  const button = $('logout-btn');
+  button.disabled = true;
+  $('logout-status').textContent = '';
+  $('logout-status').classList.add('hidden');
   try {
-    await navigator.clipboard.writeText(token);
-    setStatus('access-token-status', 'Access token copied to clipboard.');
-  } catch {
-    setStatus('access-token-status', 'Clipboard access is unavailable in this browser.');
+    const response = await fetch('/api/auth/logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'StudyBuddy'
+      },
+      body: '{}'
+    });
+    if (!response.ok) throw new Error('Could not log out right now. Please try again.');
+    appInitialization = null;
+    showLoginScreen();
+    $('login-username').focus();
+  } catch (error) {
+    $('logout-status').textContent = error.message || 'Could not log out right now. Please try again.';
+    $('logout-status').classList.remove('hidden');
+  } finally {
+    button.disabled = false;
   }
-});
-function maskAccessToken() {
-  $('access-token-input').type = 'password';
-  updateTokenVisibilityButton(false);
-}
-window.addEventListener('blur', maskAccessToken);
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) maskAccessToken();
-});
-$('save-access-token-btn').addEventListener('click', () => {
-  const token = $('access-token-input').value.trim();
-  if (!token) {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    setStatus('access-token-status', 'Saved token cleared.');
-    updateTutorConnectionStatus('missing');
-    return;
-  }
-  localStorage.setItem(ACCESS_TOKEN_KEY, token);
-  setStatus('access-token-status', 'Access token saved in this browser.');
-  $('token-settings').open = false;
-  updateTutorConnectionStatus('connected');
 });
 $('chat-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
 $('chat-input').addEventListener('input', event => {
@@ -5129,7 +5175,6 @@ $('tutor-history-close').addEventListener('click', () => $('tutor-history-dialog
 $('tutor-overview-open').addEventListener('click', () => setTutorOverviewOpen(true));
 $('tutor-aside-close').addEventListener('click', () => setTutorOverviewOpen(false));
 $('tutor-aside-backdrop').addEventListener('click', () => setTutorOverviewOpen(false));
-$('tutor-add-token').addEventListener('click', openTutorTokenSettings);
 $('tutor-menu').addEventListener('keydown', event => {
   const items = [...$('tutor-menu').querySelectorAll('[role="menuitem"]')];
   const activeIndex = items.indexOf(document.activeElement);
@@ -5405,4 +5450,4 @@ async function init() {
   $('export-all-data-btn').disabled = false;
   $('import-all-data-btn').disabled = false;
 }
-init();
+checkAuthentication();

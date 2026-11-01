@@ -5,7 +5,7 @@ const REQUEST_TIMEOUT_MS = 60000;
 
 function redactSecrets(text) {
     let safeText = text;
-    for (const secret of [process.env.OLLAMA_API_KEY, process.env.ACCESS_TOKEN].filter(Boolean)) {
+    for (const secret of [process.env.OLLAMA_API_KEY].filter(Boolean)) {
         safeText = safeText.split(secret).join('[REDACTED]');
     }
     return safeText.replace(/Bearer\s+[^\s"']+/gi, 'Bearer [REDACTED]').slice(0, 2000);

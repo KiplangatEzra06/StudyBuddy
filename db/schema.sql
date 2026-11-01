@@ -87,3 +87,11 @@ CREATE INDEX IF NOT EXISTS cards_deck_id_idx ON cards (deck_id);
 CREATE INDEX IF NOT EXISTS cards_deleted_at_idx ON cards (deleted_at);
 CREATE INDEX IF NOT EXISTS reviews_card_id_idx ON reviews (card_id);
 CREATE INDEX IF NOT EXISTS reviews_reviewed_at_idx ON reviews (reviewed_at);
+
+CREATE TABLE IF NOT EXISTS "session" (
+  sid VARCHAR NOT NULL PRIMARY KEY,
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" (expire);

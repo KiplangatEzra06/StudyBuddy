@@ -4,38 +4,182 @@
  *
  * SETUP:
  * 1. npm install
- * 2. Create .env with OLLAMA_API_KEY and ACCESS_TOKEN configured
+ * 2. Create .env with ADMIN_USERNAME, ADMIN_PASSWORD_HASH, SESSION_SECRET, OLLAMA_API_KEY, and DATABASE_URL configured
  * 3. npm start
  */
 
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
+const session = require('express-session');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
+const helmet = require('helmet');
+const bcrypt = require('bcryptjs');
+const connectPgSimple = require('connect-pg-simple');
 const path = require('path');
 const { callOllama } = require('./services/ollama');
 const prompts = require('./config/prompts');
-const { query: dbQuery, transaction: dbTransaction } = require('./db/pool');
+const { pool, query: dbQuery, transaction: dbTransaction } = require('./db/pool');
 const { calculateSm2, qualityForScore } = require('./sm2');
+
+const isProduction = process.env.NODE_ENV === 'production';
+const requiredProductionSettings = ['ADMIN_USERNAME', 'ADMIN_PASSWORD_HASH', 'SESSION_SECRET'];
+const missingProductionSettings = requiredProductionSettings.filter(name => !process.env[name]);
+if (isProduction && missingProductionSettings.length) {
+  throw new Error(`Missing required production environment variables: ${missingProductionSettings.join(', ')}`);
+}
+if (isProduction && process.env.SESSION_SECRET.length < 32) {
+  throw new Error('SESSION_SECRET must contain at least 32 characters in production.');
+}
+if (process.env.ADMIN_PASSWORD_HASH
+  && !/^\$2[aby]\$12\$[./A-Za-z0-9]{53}$/.test(process.env.ADMIN_PASSWORD_HASH)) {
+  throw new Error('ADMIN_PASSWORD_HASH must be a valid bcrypt hash using cost 12.');
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.set('trust proxy', 1);
 
+function limiterKey(req) {
+  const forwarded = Array.isArray(req.headers['x-forwarded-for'])
+    ? req.headers['x-forwarded-for'][0]
+    : req.headers['x-forwarded-for'];
+  const candidate = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '';
+  const ip = candidate || req.ip || 'unknown';
+  return ipKeyGenerator(ip);
+}
+
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com', 'https://cdn.jsdelivr.net'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://cdn.jsdelivr.net'],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      fontSrc: ["'self'", 'data:', 'https://cdn.jsdelivr.net'],
+      connectSrc: ["'self'"],
+      workerSrc: ["'self'", 'blob:', 'https://cdnjs.cloudflare.com'],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      formAction: ["'self'"]
+    }
+  }
+}));
 app.use(express.json({ limit: '10mb' }));
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 20,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  keyGenerator: limiterKey,
   message: { error: 'Too many AI requests. Please try again in a minute.' }
 });
-app.use('/api', aiLimiter, (req, res, next) => {
-  if (!process.env.ACCESS_TOKEN || req.get('x-access-token') !== process.env.ACCESS_TOKEN) {
-    return res.status(401).json({ error: 'Invalid access token' });
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: limiterKey,
+  message: { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.' }
+});
+const PgSessionStore = connectPgSimple(session);
+const sessionStore = process.env.NODE_ENV === 'test'
+  ? new session.MemoryStore()
+  : new PgSessionStore({ pool, tableName: 'session', createTableIfMissing: false });
+app.use(session({
+  name: 'studybuddy.sid',
+  store: sessionStore,
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(48).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 30 * 24 * 60 * 60 * 1000
+  }
+}));
+
+function requireJsonCsrf(req, res, next) {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  if (!req.is('application/json')) {
+    return res.status(415).json({ error: 'Requests must use application/json.' });
+  }
+  if (req.get('X-Requested-With') !== 'StudyBuddy') {
+    return res.status(403).json({ error: 'Request could not be verified.' });
   }
   next();
-});
+}
+
+function requireAuth(req, res, next) {
+  if (req.session?.authenticated === true) return next();
+  return res.status(401).json({ error: 'Authentication required.' });
+}
+
+function usernamesMatchConstantTime(username) {
+  const supplied = crypto.createHash('sha256').update(username).digest();
+  const configured = crypto.createHash('sha256').update(process.env.ADMIN_USERNAME || '').digest();
+  return crypto.timingSafeEqual(supplied, configured);
+}
+
+const unavailablePasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 12);
+const configuredPasswordHash = process.env.ADMIN_PASSWORD_HASH || unavailablePasswordHash;
 const publicDirectory = path.join(__dirname, 'public');
+
+app.use('/api', requireJsonCsrf);
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
+  const username = typeof req.body?.username === 'string' ? req.body.username : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  let passwordMatches = false;
+  try {
+    passwordMatches = await bcrypt.compare(password, configuredPasswordHash);
+  } catch {
+    passwordMatches = false;
+  }
+  const usernameMatches = usernamesMatchConstantTime(username);
+  const credentialsConfigured = Boolean(process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD_HASH);
+  if (!credentialsConfigured || !usernameMatches || !passwordMatches) {
+    return res.status(401).json({ error: 'Incorrect username or password' });
+  }
+  req.session.regenerate(error => {
+    if (error) {
+      console.error('Could not establish authenticated session.');
+      return res.status(500).json({ error: 'Could not sign in right now. Please try again.' });
+    }
+    req.session.authenticated = true;
+    req.session.save(saveError => {
+      if (saveError) {
+        console.error('Could not save authenticated session.');
+        return res.status(500).json({ error: 'Could not sign in right now. Please try again.' });
+      }
+      res.json({ authenticated: true });
+    });
+  });
+});
+app.post('/api/auth/logout', (req, res) => {
+  if (!req.session) return res.sendStatus(204);
+  req.session.destroy(error => {
+    if (error) {
+      console.error('Could not destroy authenticated session.');
+      return res.status(500).json({ error: 'Could not log out right now. Please try again.' });
+    }
+    res.clearCookie('studybuddy.sid', {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/'
+    });
+    res.sendStatus(204);
+  });
+});
+app.get('/api/auth/me', (req, res) => {
+  res.json({ authenticated: req.session?.authenticated === true });
+});
+app.use('/api', aiLimiter, requireAuth);
+
 function parseJsonText(text) {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   try {

@@ -21,7 +21,31 @@
 </head>
 
 <body>
-  <div class="app-shell">
+  <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
+    <div class="auth-card">
+      <a class="auth-brand" href="#" aria-label="StudyBuddy">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M10 19c8-4 15-3 22 1v25c-7-4-14-5-22-1zM32 20c7-4 14-5 22-1v25c-8-4-15-3-22-1zM32 20v25" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
+          <path d="m45 8 2.4 5 5.5.8-4 3.9.9 5.5-4.8-2.6-4.9 2.6.9-5.5-4-3.9 5.6-.8z" fill="currentColor"/>
+        </svg>
+        <span>StudyBuddy</span>
+      </a>
+      <h1 id="auth-title">Welcome back</h1>
+      <p class="panel-sub">Sign in to continue to your study desk.</p>
+      <form id="login-form">
+        <label for="login-username">Username</label>
+        <input id="login-username" name="username" type="text" autocomplete="username" required maxlength="128">
+        <label for="login-password">Password</label>
+        <div class="auth-password-field">
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          <button class="btn" id="toggle-login-password" type="button" aria-label="Show password" aria-pressed="false">Show</button>
+        </div>
+        <p class="auth-error" id="login-error" role="alert" aria-live="polite"></p>
+        <button class="btn btn-primary auth-submit" id="login-submit" type="submit">Sign in</button>
+      </form>
+    </div>
+  </section>
+  <div class="app-shell hidden" id="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Main sidebar">
       <a class="brand" href="#" aria-label="StudyBuddy home">
         <svg class="brand-logo-mark-only" viewBox="0 0 64 64" aria-hidden="true">
@@ -94,7 +118,9 @@
       </nav>
       <div class="sidebar-footer">
         <span class="sidebar-status-dot" aria-hidden="true"></span>
-        <span>Saved on this device</span>
+        <span>Signed in</span>
+        <button type="button" class="btn btn-sm" id="logout-btn">Log out</button>
+        <span class="hidden" id="logout-status" role="status" aria-live="polite"></span>
       </div>
     </aside>
     <button class="sidebar-overlay" id="sidebar-overlay" type="button" aria-label="Close navigation" aria-hidden="true" tabindex="-1"></button>
@@ -347,7 +373,7 @@
     <section class="panel hidden" id="panel-tutor" aria-label="Tutor chat">
       <div class="tutor-toolbar" role="toolbar" aria-label="Tutor controls">
         <input class="tutor-conversation-title" id="tutor-conversation-title" type="text" maxlength="80" aria-label="Conversation title">
-        <span class="tutor-connection-chip" id="tutor-connection-chip" role="status">Token needed</span>
+        <span class="tutor-connection-chip" id="tutor-connection-chip" role="status">Connected</span>
         <label class="tutor-material-toggle"><span>Study material</span><input type="checkbox" id="tutor-use-material" checked></label>
         <select id="tutor-study-scope" aria-label="Study material scope">
           <option value="all">All material</option>
@@ -363,10 +389,6 @@
             <button type="button" role="menuitem" id="clear-chat-btn">Clear history</button>
           </div>
         </details>
-      </div>
-      <div class="tutor-token-prompt hidden" id="tutor-token-prompt" role="status">
-        <span>Your AI access token is needed to use the Tutor.</span>
-        <button type="button" class="btn btn-primary btn-sm" id="tutor-add-token">Add token</button>
       </div>
       <div class="tutor-workspace">
         <div class="tutor-chat-column">
@@ -773,7 +795,7 @@
         <button class="btn" id="import-all-data-btn" disabled>Import from file</button>
         <input type="file" id="import-all-data-file" accept=".json,application/json" class="hidden">
       </div>
-      <p class="hint">Imports merge with data already in this browser; existing records are kept when IDs match. Flashcards are deduplicated by deck and card text. Tutor access tokens are not included in backups.</p>
+      <p class="hint">Imports merge with data already in this browser; existing records are kept when IDs match. Flashcards are deduplicated by deck and card text. Login credentials are never included in backups.</p>
       <p class="status" id="all-data-status" role="status" aria-live="polite"></p>
       <div class="row">
         <button class="btn btn-danger" id="clear-quiz-history-btn" type="button">Clear quiz history</button>
@@ -793,22 +815,6 @@
       <div class="settings-divider"></div>
       <h2 class="settings-heading">Tutor privacy</h2>
       <label class="theme-setting"><span><strong>Use study material by default</strong><small>When on, relevant excerpts are sent to the configured AI provider with each Tutor question.</small></span><input type="checkbox" id="settings-tutor-material" checked></label>
-      <div class="settings-divider"></div>
-      <h2 class="settings-heading">AI connection</h2>
-      <details class="token-settings" id="token-settings">
-        <summary>Manage access token</summary>
-        <div class="row">
-          <input type="password" id="access-token-input" placeholder="Backend access token" autocomplete="off" aria-label="Backend access token">
-          <button class="btn token-visibility-btn" id="toggle-access-token-btn" type="button" aria-label="Show access token">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>
-            </svg>
-          </button>
-          <button class="btn" id="copy-access-token-btn" type="button">Copy</button>
-          <button class="btn btn-primary" id="save-access-token-btn" type="button">Save token</button>
-          <span class="status" id="access-token-status" role="status" aria-live="polite"></span>
-        </div>
-      </details>
     </section>
           </div>
         </div>
