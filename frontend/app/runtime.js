@@ -1526,7 +1526,7 @@ function renderCalendar() {
   weekdays.classList.toggle('hidden', calendarView === 'year' || calendarView === 'day');
   weekdays.style.gridTemplateColumns = calendarView === 'day' ? '1fr' : '';
   week.style.gridTemplateRows = '';
-  $('calendar-selected-title').textContent = formatCalendarHeading(new Date());
+  $('calendar-selected-title').textContent = formatCalendarHeading(selectedDate);
   const nextEvent = getNextCalendarEvent(new Date());
   $('calendar-next-event').textContent = nextEvent
     ? `${nextEvent.type === 'class' ? 'Class' : 'Assignment'} · ${nextEvent.title} · ${nextEvent.when}`
