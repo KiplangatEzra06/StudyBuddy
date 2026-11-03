@@ -1,21 +1,23 @@
 import { createApiClient } from '../services/api.js';
 import { idbGet, idbSet } from '../services/storage.js';
+import {
+  calendarEventsForDate as collectCalendarEvents,
+  getNextCalendarEvent as findNextCalendarEvent,
+  localDateKey
+} from '../features/calendar-data.js';
+import {
+  BACKUP_COLLECTIONS,
+  BACKUP_FORMAT,
+  BACKUP_LOCAL_SETTINGS,
+  BACKUP_VERSION,
+  mergeRecords,
+  validateBackup
+} from '../features/backup-data.js';
 
 const TUTOR_MATERIAL_KEY = 'studybuddy-tutor-material';
 const NOTE_CLEANUP_KEY = 'studybuddy-note-cleanup-version';
 const NOTES_NOTEBOOK_KEY = 'studybuddy-notes-active-notebook';
 const NOTES_SELECTED_NOTE_KEY = 'studybuddy-notes-selected-note';
-const BACKUP_FORMAT = 'studybuddy-data';
-const BACKUP_VERSION = 1;
-const BACKUP_COLLECTIONS = ['documents', 'cards', 'notes', 'quizResults', 'timerSessions', 'classes', 'assignments', 'tutorConversations'];
-const REQUIRED_BACKUP_COLLECTIONS = ['documents', 'cards', 'notes', 'quizResults', 'timerSessions'];
-const BACKUP_LOCAL_SETTINGS = [
-  'studybuddy-theme',
-  'studybuddy-tutor-material',
-  'studybuddy-assignment-reminders',
-  'studybuddy-timer-sound',
-  'studybuddy-timer-notification'
-];
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const REMINDERS_ENABLED_KEY = 'studybuddy-assignment-reminders';
 const FLASHCARD_IMPORT_DONE_KEY = 'studybuddy-flashcards-neon-imported';
@@ -1126,10 +1128,6 @@ function dateTimeInputValue(timestamp) {
   return local.toISOString().slice(0, 16);
 }
 
-function localDateKey(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
 function formatDueDate(timestamp, includeYear = true) {
   return new Intl.DateTimeFormat(undefined, {
     weekday: 'short',
@@ -1432,30 +1430,11 @@ function formatCalendarHeading(date) {
 }
 
 function calendarEventsForDate(date) {
-  const dateKey = localDateKey(date);
-  const events = classes
-    .filter(item => Array.isArray(item.meetingDays) && item.meetingDays.map(Number).includes(date.getDay()))
-    .map(item => ({
-      type: 'class',
-      title: item.name || 'Class',
-      time: item.startTime || '',
-      detail: [item.startTime && `${item.startTime}${item.endTime ? `–${item.endTime}` : ''}`, item.location].filter(Boolean).join(' · '),
-      past: dateKey < localDateKey(new Date())
-    }));
-  assignments.forEach(item => {
-    const dueAt = Number(item.dueAt);
-    if (!Number.isFinite(dueAt) || localDateKey(new Date(dueAt)) !== dateKey) return;
-    events.push({
-      type: 'assignment',
-      id: item.id,
-      title: item.title || 'Untitled assignment',
-      time: new Date(dueAt).toTimeString().slice(0, 5),
-      detail: new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(dueAt)),
-      completed: Boolean(item.completed),
-      past: dueAt < Date.now()
-    });
-  });
-  return events.sort((a, b) => a.time.localeCompare(b.time));
+  return collectCalendarEvents(date, classes, assignments);
+}
+
+function getNextCalendarEvent(fromDate) {
+  return findNextCalendarEvent(fromDate, classes, assignments);
 }
 
 function calendarEventMarkup(event, dateKey) {
@@ -4483,68 +4462,6 @@ function readJSONFile(file, cb) {
     catch (e) { alert('Could not read that file. Make sure it is valid JSON.'); }
   };
   reader.readAsText(file);
-}
-
-function validateBackup(backup) {
-  if (!backup || typeof backup !== 'object' || Array.isArray(backup)
-    || backup.format !== BACKUP_FORMAT || backup.version !== BACKUP_VERSION
-    || !backup.data || typeof backup.data !== 'object' || Array.isArray(backup.data)) {
-    throw new Error('This is not a supported StudyBuddy backup.');
-  }
-
-  const requiredFields = {
-    documents: { title: 'string', extractedText: 'string' },
-    cards: { front: 'string', back: 'string' },
-    notes: { title: 'string', body: 'string' },
-    quizResults: { score: 'number', correct: 'number', total: 'number', takenAt: 'number' },
-    timerSessions: { seconds: 'number', completedAt: 'number' },
-    classes: { name: 'string' },
-    assignments: { title: 'string', dueAt: 'number' },
-    tutorConversations: { title: 'string', createdAt: 'number', updatedAt: 'number' }
-  };
-
-  for (const collection of BACKUP_COLLECTIONS) {
-    const records = backup.data[collection];
-    if (records === undefined && !REQUIRED_BACKUP_COLLECTIONS.includes(collection)) {
-      backup.data[collection] = [];
-      continue;
-    }
-    if (!Array.isArray(records)) throw new Error(`The backup is missing valid ${collection} data.`);
-    records.forEach((record, index) => {
-      if (!record || typeof record !== 'object' || Array.isArray(record)
-        || typeof record.id !== 'string' || !/^[\w-]{1,100}$/.test(record.id)
-        || Object.entries(requiredFields[collection]).some(([field, type]) => typeof record[field] !== type)
-        || (collection === 'tutorConversations' && !Array.isArray(record.messages))
-        || (collection === 'assignments' && (!Number.isFinite(record.dueAt)
-          || !Number.isFinite(new Date(record.dueAt).getTime())
-          || (record.reminderAt != null && (!Number.isFinite(record.reminderAt)
-            || !Number.isFinite(new Date(record.reminderAt).getTime())))))) {
-        throw new Error(`The backup contains an invalid ${collection} record at item ${index + 1}.`);
-      }
-    });
-  }
-  const localSettings = backup.localSettings || {};
-  if (!localSettings || typeof localSettings !== 'object' || Array.isArray(localSettings)
-    || Object.entries(localSettings).some(([key, value]) =>
-      !BACKUP_LOCAL_SETTINGS.includes(key) || typeof value !== 'string' || value.length > 100)) {
-    throw new Error('The backup contains invalid local settings.');
-  }
-  return {
-    ...Object.fromEntries(BACKUP_COLLECTIONS.map(collection => [collection, backup.data[collection] || []])),
-    localSettings
-  };
-}
-
-function mergeRecords(existing, imported) {
-  const ids = new Set(existing.map(record => record.id));
-  const merged = [...existing];
-  imported.forEach(record => {
-    if (!ids.has(record.id)) {
-      ids.add(record.id);
-      merged.push(record);
-    }
-  });
-  return merged;
 }
 
 async function saveBackupCollections(collections) {
