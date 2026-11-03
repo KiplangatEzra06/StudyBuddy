@@ -1,23 +1,14 @@
-# Backend module map
+# Backend
 
-This folder documents the intended backend organization for the redesign without changing the runtime behavior of the current app.
+The root `server.js` remains the Render-compatible entrypoint and test import. It loads `.env`, starts the app when run directly, and exports the Express instance.
 
-## Existing runtime files
+## Runtime modules
 
-- `../server.js` — Express bootstrap, auth, session management, routes
-- `../db/` — PostgreSQL pooling and migrations
-- `../services/ollama.js` — AI proxy service
-- `../config/prompts.js` — prompt configuration
+- `app/index.js` configures Express, sessions, rate limits, API routes, and static serving.
+- `routes/auth.js` owns login, logout, and session-status routes.
+- `middleware/request.js` owns JSON/CSRF validation and authenticated-session enforcement.
+- `services/ollama.js` and `services/sm2.js` contain the AI integration and spaced-repetition logic.
+- `config/prompts.js` contains AI prompts.
+- The existing PostgreSQL pool and migration tooling remain in `../db/`.
 
-## Target split for later stages
-
-- `app/` — Express initialization, middleware, and app-level setup
-- `routes/` — API route definitions
-- `controllers/` — request handling logic
-- `services/` — business logic and integrations
-- `repositories/` — database access and persistence logic
-- `middleware/` — auth, validation, rate limiting, and request checking
-- `config/` — environment and prompt configuration
-- `utils/` — shared helper functions
-
-The current backend remains the source of truth in Stage B, preserving every route, response shape, and contract.
+The other API route families and their business logic remain in `app/index.js`; extracting those without altering contracts remains outstanding. The `controllers/`, `repositories/`, and `utils/` folders do not yet contain runtime modules.

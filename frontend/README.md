@@ -1,20 +1,11 @@
-# Frontend module map
+# Frontend
 
-This folder documents the intended frontend organization for the redesign without changing the runtime behavior of the current app.
+`public/index.html` and `public/styles.css` remain the served application shell and visual layer. `public/app.js` is the browser-module entrypoint; it imports `app/main.js`, which loads the current runtime.
 
-## Existing runtime files
+## Runtime modules
 
-- `../public/index.html` — shell markup
-- `../public/styles.css` — existing styling layer
-- `../public/app.js` — current app logic and feature wiring
+- `app/runtime.js` contains the existing feature logic and initialization. It remains cohesive for this no-visible-change stage; page-level feature extraction is still outstanding.
+- `services/api.js` owns same-origin, cookie-authenticated API requests, timeout handling, and unauthorized-session callbacks.
+- `services/storage.js` owns the existing IndexedDB `margin-db` / `kv` access functions.
 
-## Target split for later stages
-
-- `app/` — bootstrap, routing/view switching, app lifecycle, and global state
-- `shared/` — buttons, forms, modals, toasts, cards, utility UI pieces
-- `services/` — API client, IndexedDB wrapper, local persistence adapters
-- `features/` — dashboard, calendar, classes, documents, notes, tutor, flashcards, quiz, timer, progress, settings
-- `styles/` — design tokens and feature-specific styles
-- `utils/` — shared helper functions
-
-The app is intentionally left as-is in Stage B so the redesign can proceed later without an accidental UI change.
+Express serves this directory at `/frontend`. There is no frontend build step, and the page continues to use the same-origin API and existing local data. The folders for feature modules, shared UI, styles, and utilities are not yet runtime modules.
