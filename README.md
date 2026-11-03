@@ -7,6 +7,7 @@ Margin is a single-user study app with local browser features and a Neon-backed 
 - The app is served from the same Express origin (`public/`), so browser requests use relative `/api/...` URLs and cookie-based auth instead of tokens.
 - The backend proxies AI requests to Ollama, validates JSON responses, and stores flashcard data in Neon Postgres.
 - Local-only app data such as documents, notes, classes, assignments, quiz history, and timer sessions remain in IndexedDB.
+- The frontend entrypoint and shared API/storage services are native modules under `frontend/`; backend application code is under `backend/`. See [docs/architecture.md](./docs/architecture.md).
 
 ## Local setup
 
@@ -104,12 +105,15 @@ The app includes a temporary browser export/import flow for migrating existing l
 - `POST /api/auth/login`
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
-- `GET /api/health`
+- `GET /health`
 - `POST /api/cards/generate`
 - `POST /api/cards/save`
 - `GET /api/review/next`
 - `POST /api/review/grade`
-- `GET /api/stats/topics` app load after this change, existing browser flashcards are imported into Neon and deduplicated by deck name, front, and back. A copy of the pre-import local cards is kept in IndexedDB as `flashcards-local-backup`; the import completion marker is stored in this browser so it is only attempted once. If the import fails, the marker is not written, allowing a retry without losing the backup.
+- `GET /api/stats/topics`
+
+On first app load, existing browser flashcards are imported into Neon and deduplicated by deck name, front, and back. A copy of the pre-import local cards is kept in IndexedDB as `flashcards-local-backup`; the import completion marker is stored in this browser so it is only attempted once. If the import fails, the marker is not written, allowing a retry without losing the backup.
+
 Open Settings to export all documents, classes, assignments, flashcards, notes, quiz history, and timer sessions to a JSON backup, or import a backup. Imports merge by record ID and keep existing records when IDs collide. Backups created before classes and assignments were added remain supported. Tutor access tokens and notification permissions are not included.
 
 Flashcards and notes also retain their individual export/import controls.
