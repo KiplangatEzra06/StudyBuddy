@@ -832,17 +832,24 @@ if (window.pdfjsLib) {
 const PAGE_TITLES = {
   dashboard: 'Dashboard',
   calendar: 'Calendar',
-  classes: 'Classes',
+  classes: 'Courses',
+  assignments: 'Assignments',
   documents: 'Documents',
-  tutor: 'Tutor',
+  tutor: 'AI Tutor',
   cards: 'Flashcards',
   quiz: 'Quiz',
-  timer: 'Timer',
+  timer: 'Focus Timer',
+  sessions: 'Study Sessions',
   notes: 'Notes',
   progress: 'Progress',
   settings: 'Settings'
 };
+const PAGE_PANEL_IDS = {
+  assignments: 'classes',
+  sessions: 'progress'
+};
 const THEME_KEY = 'studybuddy-theme';
+const SIDEBAR_COLLAPSE_KEY = 'studybuddy-sidebar-collapsed';
 const MOBILE_MENU_QUERY = window.matchMedia('(max-width: 768px)');
 
 function effectiveTheme() {
@@ -1004,19 +1011,35 @@ function closeMobileMenu(restoreFocus = true) {
 }
 
 function activatePage(page) {
-  if (!PAGE_TITLES[page] || !$(`panel-${page}`)) return;
+  const panelId = PAGE_PANEL_IDS[page] || page;
+  if (!PAGE_TITLES[page] || !$(`panel-${panelId}`)) return;
   document.querySelectorAll('.tab').forEach(button => {
     const active = button.dataset.tab === page;
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   });
-  document.querySelectorAll('.panel').forEach(panel => panel.classList.toggle('hidden', panel.id !== `panel-${page}`));
+  document.querySelectorAll('.panel').forEach(panel => panel.classList.toggle('hidden', panel.id !== `panel-${panelId}`));
   $('page-title').textContent = PAGE_TITLES[page];
   $('topbar-page-title').textContent = PAGE_TITLES[page];
   $('page-layout').classList.toggle('tutor-active', page === 'tutor');
+  $('panel-progress').classList.toggle('sessions-view', page === 'sessions');
+  $('panel-classes').classList.toggle('assignments-view', page === 'assignments');
+  $('progress-panel-title').textContent = page === 'sessions' ? 'Study Sessions' : 'Progress';
+  $('progress-panel-description').textContent = page === 'sessions'
+    ? 'Review your recent focus sessions and time spent studying.'
+    : 'A plain dashboard for reading progress, flashcard mastery, quiz accuracy, study time, and sessions this week.';
+  $('progress-sessions-title').textContent = page === 'sessions' ? 'Session history' : 'Recent sessions';
+  $('classes-panel-title').textContent = page === 'assignments' ? 'Assignments' : 'Courses';
+  $('classes-panel-description').textContent = page === 'assignments'
+    ? 'Track the deadlines already linked to your courses.'
+    : 'Keep course details, weekly meeting times, and assignment deadlines together. Your information stays in this browser.';
+  if (panelId === 'classes') {
+    classesView = page === 'assignments' ? 'assignments' : 'classes';
+    renderClasses();
+  }
   if (page === 'dashboard') renderDashboard();
-  if (page === 'progress') {
+  if (panelId === 'progress') {
     renderProgress();
     loadProgressDeckStats();
   }
@@ -1057,6 +1080,25 @@ $('sidebar').querySelector('.brand').addEventListener('click', event => {
   event.preventDefault();
   activatePage('dashboard');
   closeMobileMenu();
+});
+
+$('app-shell').classList.toggle('sidebar-collapsed', localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === 'true');
+function syncSidebarCollapseButton() {
+  const collapsed = $('app-shell').classList.contains('sidebar-collapsed');
+  $('sidebar-collapse-toggle').setAttribute('aria-expanded', String(!collapsed));
+  $('sidebar-collapse-toggle').setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} navigation`);
+  $('sidebar-collapse-toggle').title = `${collapsed ? 'Expand' : 'Collapse'} navigation`;
+  document.querySelectorAll('.tab').forEach(button => {
+    const label = button.querySelector(':scope > span:not(.tab-badge)')?.textContent.trim();
+    if (collapsed && label) button.title = label;
+    else button.removeAttribute('title');
+  });
+}
+syncSidebarCollapseButton();
+$('sidebar-collapse-toggle').addEventListener('click', () => {
+  const collapsed = $('app-shell').classList.toggle('sidebar-collapsed');
+  localStorage.setItem(SIDEBAR_COLLAPSE_KEY, String(collapsed));
+  syncSidebarCollapseButton();
 });
 
 $('menu-toggle').addEventListener('click', () => {
@@ -5370,12 +5412,10 @@ $('calendar-add-fab').addEventListener('click', () => {
   openAssignmentForm(null, '', selected.getTime());
 });
 $('classes-view-classes').addEventListener('click', () => {
-  classesView = 'classes';
-  renderClasses();
+  activatePage('classes');
 });
 $('classes-view-assignments').addEventListener('click', () => {
-  classesView = 'assignments';
-  renderClasses();
+  activatePage('assignments');
 });
 $('classes-search').addEventListener('input', renderClasses);
 $('calendar-prev-week').addEventListener('click', () => shiftCalendarPeriod(-1));

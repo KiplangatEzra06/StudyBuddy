@@ -10310,3 +10310,254 @@
       writing-mode: horizontal-tb;
       white-space: nowrap;
     }
+
+    .nav-group {
+      display: flex;
+      flex: 0 0 auto;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .nav-group + .nav-group {
+      margin-top: 7px;
+      padding-top: 7px;
+      border-top: 1px solid var(--color-border);
+    }
+
+    .nav-group-label {
+      margin: 0;
+      padding: 3px 12px 5px;
+      color: var(--color-text-faint);
+      font: 700 9px/1.35 var(--font-sans);
+      letter-spacing: 0.1em;
+    }
+
+    .sidebar-collapse-toggle {
+      display: inline-grid;
+      grid-column: 1;
+      width: 40px;
+      height: 40px;
+      place-items: center;
+      justify-self: start;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+    }
+
+    .sidebar-collapse-toggle svg {
+      width: 19px;
+      height: 19px;
+      transition: transform var(--transition-fast);
+    }
+
+    .sidebar-collapse-toggle:hover,
+    .sidebar-collapse-toggle:focus-visible {
+      border-color: var(--color-accent);
+      background: var(--color-surface-soft);
+      color: var(--color-accent);
+    }
+
+    .sidebar-collapse-toggle:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
+    .topbar .menu-toggle {
+      display: none;
+    }
+
+    .app-shell.sidebar-collapsed {
+      grid-template-columns: 76px minmax(0, 1fr);
+    }
+
+    .sidebar-collapsed .sidebar {
+      padding-right: 10px;
+      padding-left: 10px;
+    }
+
+    .sidebar-collapsed .brand {
+      justify-content: center;
+      padding-right: 0;
+      padding-left: 0;
+    }
+
+    .sidebar-collapsed .brand-logo {
+      display: none;
+    }
+
+    .sidebar-collapsed .brand-logo-mark-only {
+      display: block;
+    }
+
+    .sidebar-collapsed .nav-group + .nav-group {
+      margin-top: 5px;
+      padding-top: 5px;
+    }
+
+    .sidebar-collapsed .nav-group-label {
+      display: none;
+    }
+
+    .sidebar-collapsed .tab {
+      justify-content: center;
+      position: relative;
+      padding-right: 4px;
+      padding-left: 4px;
+    }
+
+    .sidebar-collapsed .tab > span:not(.tab-badge) {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .sidebar-collapsed .tab-badge {
+      position: absolute;
+      top: 0;
+      right: 0;
+    }
+
+    .sidebar-collapsed .sidebar-footer {
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px 0 0;
+    }
+
+    .sidebar-collapsed .sidebar-status-text {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .sidebar-collapsed #logout-btn {
+      width: 100%;
+      min-width: 0;
+      padding-right: 2px;
+      padding-left: 2px;
+      font-size: 10px;
+    }
+
+    .sidebar-collapsed .sidebar-collapse-toggle svg {
+      transform: rotate(180deg);
+    }
+
+    #panel-progress.sessions-view > .stat-grid > .stat:not(:first-child),
+    #panel-progress.sessions-view > .progress-charts,
+    #panel-progress.sessions-view > .split > div:first-child,
+    #panel-progress.sessions-view > .progress-weak-decks {
+      display: none;
+    }
+
+    #panel-progress.sessions-view > .split {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    #panel-progress.sessions-view > .split > div:last-child {
+      min-width: 0;
+    }
+
+    @media (max-width: 768px) {
+      .app-shell.sidebar-collapsed {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .sidebar-collapsed .sidebar {
+        padding: 14px 12px 12px;
+      }
+
+      .sidebar-collapsed .brand {
+        justify-content: flex-start;
+        padding: 0 8px 12px;
+      }
+
+      .sidebar-collapsed .brand-logo {
+        display: block;
+      }
+
+      .sidebar-collapsed .brand-logo-mark-only {
+        display: none;
+      }
+
+      .sidebar-collapsed .nav-group + .nav-group {
+        margin-top: 7px;
+        padding-top: 7px;
+      }
+
+      .sidebar-collapsed .nav-group-label {
+        display: block;
+      }
+
+      .sidebar-collapsed .tab {
+        justify-content: flex-start;
+        position: static;
+        padding: 6px 9px;
+      }
+
+      .sidebar-collapsed .tab > span:not(.tab-badge) {
+        position: static;
+        width: auto;
+        height: auto;
+        padding: 0;
+        margin: 0;
+        overflow: visible;
+        clip: auto;
+        white-space: normal;
+      }
+
+      .sidebar-collapsed .tab-badge {
+        position: static;
+        margin-left: auto;
+      }
+
+      .sidebar-collapsed .sidebar-footer {
+        flex-direction: row;
+        gap: 9px;
+        padding: 9px 8px 0;
+      }
+
+      .sidebar-collapsed .sidebar-status-text {
+        position: static;
+        width: auto;
+        height: auto;
+        padding: 0;
+        margin: 0;
+        overflow: visible;
+        clip: auto;
+        white-space: normal;
+      }
+
+      .sidebar-collapsed #logout-btn {
+        width: auto;
+        padding: 6px 9px;
+        font-size: 11px;
+      }
+
+      .sidebar-collapse-toggle {
+        display: none;
+      }
+
+      .topbar .menu-toggle {
+        display: inline-grid;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .sidebar-collapse-toggle,
+      .sidebar-collapse-toggle svg {
+        transition: none;
+      }
+    }

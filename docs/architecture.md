@@ -1,6 +1,6 @@
 # StudyBuddy repository architecture
 
-Stage B separates the application entrypoints and infrastructure responsibilities without changing data or API contracts. Stage C establishes a dedicated design-token and shared-component layer while retaining the existing page structure and interactions.
+Stage B separates the application entrypoints and infrastructure responsibilities without changing data or API contracts. Stage C establishes a dedicated design-token and shared-component layer. Stage D groups navigation around the existing features and adds a collapsible desktop sidebar while retaining the mobile drawer.
 
 ## Frontend
 
@@ -16,7 +16,7 @@ Stage B separates the application entrypoints and infrastructure responsibilitie
 - `frontend/features/backup-data.js` owns backup schema validation and ID-preserving collection merges; browser storage and import/export interactions remain in the runtime.
 - Express serves `frontend/` from `/frontend`; there is no build step.
 
-The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. Stage C preserves those boundaries and standardizes shared styling primitives without changing markup contracts or app behavior.
+The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. The Assignments navigation view reuses the existing course/assignment panel and records; Study Sessions reuses the existing timer-session history and progress data. Neither creates a new data model or placeholder page.
 
 ## Backend
 

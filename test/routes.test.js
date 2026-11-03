@@ -70,4 +70,18 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
   assert.equal(page.status, 200);
   assert.ok(page.text.indexOf('design-tokens.css') < page.text.indexOf('styles.css'));
   assert.ok(page.text.indexOf('styles.css') < page.text.indexOf('components.css'));
+  for (const group of [
+    'WORKSPACE',
+    'ACADEMIC PLANNER',
+    'STUDY LIBRARY',
+    'LEARNING STUDIO',
+    'PRODUCTIVITY',
+    'INSIGHTS AND SETTINGS'
+  ]) {
+    assert.ok(page.text.includes(`>${group}</h2>`), `navigation includes the ${group} group`);
+  }
+  assert.match(page.text, /data-tab="assignments"/);
+  assert.match(page.text, /data-tab="sessions"/);
+  assert.match(page.text, /id="sidebar-collapse-toggle"/);
+  assert.match(page.text, /id="menu-toggle"/);
 });

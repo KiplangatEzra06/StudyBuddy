@@ -7,6 +7,7 @@
 - `public/design-tokens.css` is the source of truth for theme colors, spacing, radii, typography, shadows, focus rings, and layer levels.
 - `public/components.css` defines shared button, form-control, and panel behavior. Button hover states retain their base colors and rely on focus, shadow, and motion cues rather than color changes.
 - `public/styles.css` retains app-shell and feature-specific layout rules.
+- The sidebar groups existing destinations by workspace, planner, library, learning, productivity, and insights. Assignments reuses the existing assignment view; Study Sessions focuses the existing timer-session history. Desktop sidebar collapse state is stored in local storage, and narrow layouts retain the keyboard-operable mobile drawer.
 
 ## Runtime modules
 
