@@ -55,4 +55,19 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
   assert.equal(backupModule.status, 200);
   assert.match(backupModule.headers['content-type'], /javascript/);
   assert.match(backupModule.text, /export function validateBackup/);
+
+  const [tokens, components, page] = await Promise.all([
+    request(app).get('/design-tokens.css'),
+    request(app).get('/components.css'),
+    request(app).get('/')
+  ]);
+  assert.equal(tokens.status, 200);
+  assert.match(tokens.text, /--color-background/);
+  assert.match(tokens.text, /:root\[data-theme="dark"\]/);
+  assert.equal(components.status, 200);
+  assert.match(components.text, /\.btn\.btn-primary:hover/);
+  assert.doesNotMatch(components.text, /\.btn-primary:hover\s*\{[^}]*linear-gradient/s);
+  assert.equal(page.status, 200);
+  assert.ok(page.text.indexOf('design-tokens.css') < page.text.indexOf('styles.css'));
+  assert.ok(page.text.indexOf('styles.css') < page.text.indexOf('components.css'));
 });

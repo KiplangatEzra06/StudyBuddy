@@ -1,10 +1,13 @@
 # StudyBuddy repository architecture
 
-Stage B separates the application entrypoints and several infrastructure responsibilities without changing the user-facing interface, data model, or API contracts.
+Stage B separates the application entrypoints and infrastructure responsibilities without changing data or API contracts. Stage C establishes a dedicated design-token and shared-component layer while retaining the existing page structure and interactions.
 
 ## Frontend
 
-- `public/index.html` and `public/styles.css` remain the page shell and stylesheet.
+- `public/index.html` remains the page shell.
+- `public/design-tokens.css` is the single source for light, dark, and system theme variables, including color, spacing, radius, typography, and layering tokens.
+- `public/styles.css` contains page and feature-specific layout and presentation rules.
+- `public/components.css`, loaded after feature styles, contains shared button, form-control, and panel primitives so common states are consistent across the app.
 - `public/app.js` is the native ES-module entrypoint. It imports `frontend/app/main.js`.
 - `frontend/app/main.js` loads `frontend/app/runtime.js`, which currently holds the pre-existing feature logic and initialization.
 - `frontend/services/api.js` owns same-origin API requests, cookies, timeout, and unauthorized-session callback behavior.
@@ -13,7 +16,7 @@ Stage B separates the application entrypoints and several infrastructure respons
 - `frontend/features/backup-data.js` owns backup schema validation and ID-preserving collection merges; browser storage and import/export interactions remain in the runtime.
 - Express serves `frontend/` from `/frontend`; there is no build step.
 
-The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. The page shell and styles remain in their existing public files; this stage adds module boundaries without changing visible behavior.
+The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. Stage C preserves those boundaries and standardizes shared styling primitives without changing markup contracts or app behavior.
 
 ## Backend
 

@@ -1,6 +1,12 @@
 # Frontend
 
-`public/index.html` and `public/styles.css` remain the served application shell and visual layer. `public/app.js` is the browser-module entrypoint; it imports `app/main.js`, which loads the current runtime.
+`public/index.html` remains the served application shell. Its stylesheet order is `design-tokens.css`, `styles.css`, then `components.css`, so shared variables are available to page styles and shared primitives provide the final common control states. `public/app.js` is the browser-module entrypoint; it imports `app/main.js`, which loads the current runtime.
+
+## Design system
+
+- `public/design-tokens.css` is the source of truth for theme colors, spacing, radii, typography, shadows, focus rings, and layer levels.
+- `public/components.css` defines shared button, form-control, and panel behavior. Button hover states retain their base colors and rely on focus, shadow, and motion cues rather than color changes.
+- `public/styles.css` retains app-shell and feature-specific layout rules.
 
 ## Runtime modules
 
