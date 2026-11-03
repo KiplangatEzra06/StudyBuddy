@@ -19,3 +19,32 @@
 - `features/backup-data.js` owns backup schema validation and ID-preserving collection merges.
 
 Express serves this directory at `/frontend`. There is no frontend build step, and the page continues to use the same-origin API and existing local data. Calendar event derivation and backup validation/merging are separate feature modules; their DOM, storage, and interaction flows remain coordinated by the runtime.
+
+## Browser data and feature boundaries
+
+`services/storage.js` stores values in IndexedDB database `margin-db` (version 1), in the single `kv` object store (`keyPath: "key"`). Current application keys are:
+
+| Key | Used by |
+| --- | --- |
+| `documents` | Local document metadata and extracted text |
+| `notes` | Notes and notebooks |
+| `quizResults` | Quiz attempts |
+| `timerSessions` | Completed focus sessions |
+| `classes`, `assignments` | Course schedule and deadlines |
+| `tutorConversations` | Tutor chat history |
+| `deletedRecords` | Short-lived undo snapshots |
+| `studybuddy-note-cleanup-version` | One-time note migration marker |
+
+`cards` and `flashcards-local-backup` are legacy local flashcard migration keys. Current decks and cards are server-backed through the authenticated API; the application no longer treats those legacy values as the active card store.
+
+Small UI preferences are kept in `localStorage`: `studybuddy-theme`, `studybuddy-tutor-material`, `studybuddy-assignment-reminders`, `studybuddy-timer-sound`, `studybuddy-timer-notification`, `studybuddy-sidebar-collapsed`, and `studybuddy-active-conversation`. The active flashcard view is session-only. Backup export includes the supported local collections and a restricted allowlist of user preferences; credentials and server session data are excluded.
+
+| Feature | Data relationship |
+| --- | --- |
+| Courses, assignments, Calendar | Calendar events are derived from local `classes` and `assignments`; editing those views changes the same records. |
+| Documents, Notes, Quiz | Documents and extracted text stay in browser storage. Notes and quiz results are local; AI-assisted generation requires an explicit action. |
+| AI Tutor | Conversation history is local. When study material is enabled and a question is sent, relevant excerpts are sent to the configured backend AI provider. |
+| Focus Timer, Study Sessions, Progress | Completed timer sessions are local; Study Sessions and Progress read them alongside quiz, document, course, and server-backed flashcard statistics. |
+| Settings | Backup/restore works across the supported local collections and preferences; clear-history actions affect only their named collections. |
+
+The automated regression command is `npm test`. Manual browser smoke checks should use existing records and avoid upload/import, deletion, AI generation, quiz submission, and timer completion unless disposable test data is explicitly available.
