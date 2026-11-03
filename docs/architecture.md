@@ -16,7 +16,7 @@ Stage B separates the application entrypoints and infrastructure responsibilitie
 - `frontend/features/backup-data.js` owns backup schema validation and ID-preserving collection merges; browser storage and import/export interactions remain in the runtime.
 - Express serves `frontend/` from `/frontend`; there is no build step.
 
-The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. The Assignments navigation view reuses the existing course/assignment panel and records; Study Sessions reuses the existing timer-session history and progress data. Neither creates a new data model or placeholder page.
+The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. The Assignments navigation view reuses the existing course/assignment panel and records; Study Sessions reuses the existing timer-session history and progress data. Neither creates a new data model or placeholder page. The dashboard aggregates existing local document, class, assignment, quiz, and focus-session data plus server-backed flashcard due counts, and each dashboard section exposes loading, empty, and error states.
 
 ## Backend
 

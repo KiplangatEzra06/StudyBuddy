@@ -26,6 +26,8 @@ let documents = [];
 let cards = [];
 let decks = [];
 let flashcardDueCount = 0;
+let dashboardFlashcardStatus = 'loading';
+let dashboardFlashcardError = '';
 let currentFlashcardDeckFilter = 'all';
 let flashcardPastedSource = '';
 let flashcardSelectedSource = 'paste';
@@ -884,120 +886,279 @@ function updatePageDate() {
   }).format(new Date());
 }
 
-function renderDashboard() {
-  const now = new Date();
-  const hour = now.getHours();
-  $('dashboard-greeting').textContent = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const nextWeek = new Date(todayStart);
-  nextWeek.setDate(nextWeek.getDate() + 7);
-  const todaySessions = timerSessions.filter(session => new Date(session.completedAt).toDateString() === now.toDateString());
-  const focusMinutes = Math.floor(todaySessions.reduce((total, session) => total + (Number(session.seconds) || 0), 0) / 60);
-  const dueSoon = assignments.filter(assignment => !assignment.completed
-    && Number(assignment.dueAt) >= now.getTime() && Number(assignment.dueAt) < nextWeek.getTime());
-  const reviewCount = cards.filter(card => !card.mastered).length;
-  const todayClasses = classes.filter(item => Array.isArray(item.meetingDays)
-    && item.meetingDays.some(day => Number(day) === now.getDay()));
-  const todayAssignments = assignments.filter(assignment => !assignment.completed
-    && new Date(Number(assignment.dueAt)).toDateString() === now.toDateString());
-
-  $('dashboard-focus-time').textContent = focusMinutes < 60
-    ? `${focusMinutes} min`
-    : `${Math.floor(focusMinutes / 60)}h ${focusMinutes % 60}m`;
-  $('dashboard-due-count').textContent = String(dueSoon.length);
-  $('dashboard-completed-count').textContent = String(assignments.filter(assignment => assignment.completed).length);
-  $('dashboard-review-count').textContent = String(reviewCount);
-  $('dashboard-neon-due-count').textContent = String(flashcardDueCount);
-  $('dashboard-neon-due-detail').textContent = flashcardDueCount
-    ? `${flashcardDueCount} ${flashcardDueCount === 1 ? 'card is' : 'cards are'} ready for a spaced review.`
-    : 'No Study Loop cards due right now.';
-  $('dashboard-summary').textContent = [
-    `${todayClasses.length} ${todayClasses.length === 1 ? 'class' : 'classes'} today`,
-    `${dueSoon.length} ${dueSoon.length === 1 ? 'deadline' : 'deadlines'} in the next 7 days`
-  ].join(' · ');
-
-  const events = [
-    ...todayClasses.map(item => ({
-      sortKey: item.startTime || '99:99',
-      time: item.startTime && item.endTime ? `${item.startTime}–${item.endTime}` : item.startTime || 'Class',
-      title: item.name,
-      detail: item.location || item.instructor || 'Class meeting'
-    })),
-    ...todayAssignments.map(assignment => ({
-      sortKey: `${String(new Date(Number(assignment.dueAt)).getHours()).padStart(2, '0')}:${String(new Date(Number(assignment.dueAt)).getMinutes()).padStart(2, '0')}`,
-      time: `Due ${new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(Number(assignment.dueAt)))}`,
-      title: assignment.title || 'Untitled assignment',
-      detail: classForAssignment(assignment)?.name || 'General'
-    }))
-  ].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-
-  $('dashboard-today-schedule').innerHTML = events.length
-    ? events.slice(0, 3).map(event => `
-      <article class="dashboard-list-row">
-        <span class="dashboard-event-time">${escapeHtml(event.time)}</span>
-        <div><strong>${escapeHtml(event.title)}</strong><small>${escapeHtml(event.detail)}</small></div>
-      </article>
-    `).join('')
-    : '<p class="dashboard-empty">Nothing scheduled today. You have room for a focused study session.</p>';
-
-  const upcoming = assignments.filter(assignment => !assignment.completed && Number(assignment.dueAt) < nextWeek.getTime())
-    .sort((a, b) => Number(a.dueAt) - Number(b.dueAt))
-    .slice(0, 3);
-  $('dashboard-upcoming-assignments').innerHTML = upcoming.length
-    ? upcoming.map(assignment => {
-      const dueAt = Number(assignment.dueAt);
-      const overdue = dueAt < todayStart.getTime();
-      const label = overdue ? 'Overdue' : `Due ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(dueAt))}`;
-      const course = classForAssignment(assignment)?.name || 'General';
-      return `
-        <article class="dashboard-list-row dashboard-assignment-row">
-          <button class="dashboard-complete-btn" type="button" data-toggle-assignment="${escapeHtml(assignment.id)}" aria-label="Mark ${escapeHtml(assignment.title)} complete">○</button>
-          <div><strong>${escapeHtml(assignment.title || 'Untitled assignment')}</strong><small>${escapeHtml(course)} · ${escapeHtml(label)}</small></div>
-        </article>
-      `;
-    }).join('')
-    : '<p class="dashboard-empty">No open deadlines in the next 7 days.</p>';
-  bindAssignmentActions($('dashboard-upcoming-assignments'));
-
-  const latestDocument = documents
-    .filter(documentItem => (documentItem.readingProgress || 0) < 100)
-    .sort((a, b) => (b.lastOpened || b.uploadedAt || 0) - (a.lastOpened || a.uploadedAt || 0))[0];
-  const continueButton = $('dashboard-continue-button');
-  if (latestDocument) {
-    $('dashboard-continue-title').textContent = `Continue ${latestDocument.title}`;
-    $('dashboard-continue-detail').textContent = `${latestDocument.course || 'General'} · ${latestDocument.readingProgress || 0}% read`;
-    continueButton.textContent = 'Continue reading';
-    continueButton.dataset.documentId = latestDocument.id;
-    continueButton.dataset.go = '';
-  } else if (flashcardDueCount) {
-    $('dashboard-continue-title').textContent = 'Keep your knowledge fresh';
-    $('dashboard-continue-detail').textContent = `${flashcardDueCount} ${flashcardDueCount === 1 ? 'flashcard' : 'flashcards'} ready to review.`;
-    continueButton.textContent = 'Review flashcards';
-    continueButton.dataset.documentId = '';
-    continueButton.dataset.go = 'cards';
-  } else if (upcoming.length) {
-    $('dashboard-continue-title').textContent = 'Make progress on what is due next';
-    $('dashboard-continue-detail').textContent = `${upcoming[0].title || 'Your next assignment'} is coming up.`;
-    continueButton.textContent = 'View assignments';
-    continueButton.dataset.documentId = '';
-    continueButton.dataset.go = 'classes';
-  } else {
-    $('dashboard-continue-title').textContent = 'Ready for your next study session?';
-    $('dashboard-continue-detail').textContent = 'Start a focus session and make time for one small win.';
-    continueButton.textContent = 'Start focus session';
-    continueButton.dataset.documentId = '';
-    continueButton.dataset.go = 'timer';
+function renderDashboardSection(name, renderContent) {
+  const section = $(`dashboard-${name}`);
+  const loading = $(`dashboard-${name}-loading`);
+  const content = $(`dashboard-${name}-content`);
+  const empty = $(`dashboard-${name}-empty`);
+  const errorState = $(`dashboard-${name}-error`);
+  section.setAttribute('aria-busy', 'false');
+  loading.classList.add('hidden');
+  content.classList.add('hidden');
+  empty.classList.add('hidden');
+  errorState.classList.add('hidden');
+  try {
+    const result = renderContent();
+    if (result.state === 'loading') {
+      section.setAttribute('aria-busy', 'true');
+      loading.textContent = result.message || 'Loading…';
+      loading.classList.remove('hidden');
+    } else if (result.state === 'error') {
+      errorState.textContent = result.message;
+      errorState.classList.remove('hidden');
+    } else if (result.state === 'empty') {
+      empty.textContent = result.message || empty.textContent;
+      empty.classList.remove('hidden');
+    } else {
+      content.innerHTML = result.html;
+      content.classList.remove('hidden');
+    }
+  } catch (error) {
+    console.error(`Could not render dashboard ${name}.`, error);
+    errorState.textContent = 'This section could not be loaded. Please try again.';
+    errorState.classList.remove('hidden');
   }
 }
 
-$('dashboard-continue-button').addEventListener('click', event => {
-  const button = event.currentTarget;
-  if (button.dataset.documentId) {
-    activatePage('documents');
-    previewDocument(button.dataset.documentId);
-  } else if (PAGE_TITLES[button.dataset.go]) {
-    activatePage(button.dataset.go);
+function dashboardProgressRow(label, value, detail) {
+  const percent = Math.max(0, Math.min(100, Math.round(value)));
+  return `<div class="dashboard-progress-row">
+    <div class="dashboard-progress-heading"><span>${escapeHtml(label)}</span><strong>${percent}%</strong></div>
+    <div class="dashboard-progress-track" role="progressbar" aria-label="${escapeHtml(label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="width:${percent}%"></span></div>
+    <small>${escapeHtml(detail)}</small>
+  </div>`;
+}
+
+function dashboardDateTime(timestamp, options = { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) {
+  return new Intl.DateTimeFormat(undefined, options).format(new Date(timestamp));
+}
+
+function renderDashboard() {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nextWeek = new Date(todayStart);
+  nextWeek.setDate(nextWeek.getDate() + 7);
+  const hour = now.getHours();
+  $('dashboard-greeting').textContent = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  $('dashboard-summary').textContent = new Intl.DateTimeFormat(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(now);
+
+  renderDashboardSection('priorities', () => {
+    const priorities = [];
+    classes.filter(item => Array.isArray(item.meetingDays)
+      && item.meetingDays.some(day => Number(day) === now.getDay()))
+      .forEach(item => priorities.push({
+        kind: 'Class',
+        time: item.startTime || 'Today',
+        title: item.name || 'Class meeting',
+        detail: item.location || item.instructor || 'Class meeting',
+        sortKey: item.startTime || '99:99'
+      }));
+    assignments.filter(assignment => !assignment.completed && Number.isFinite(Number(assignment.dueAt))
+      && Number(assignment.dueAt) < todayStart.getTime())
+      .forEach(assignment => priorities.push({
+        kind: 'Overdue',
+        time: 'Overdue',
+        title: assignment.title || 'Untitled assignment',
+        detail: classForAssignment(assignment)?.name || 'General',
+        assignmentId: assignment.id,
+        sortKey: '00:00'
+      }));
+    assignments.filter(assignment => !assignment.completed && Number.isFinite(Number(assignment.dueAt))
+      && new Date(Number(assignment.dueAt)).toDateString() === now.toDateString())
+      .forEach(assignment => priorities.push({
+        kind: 'Due today',
+        time: 'Due today',
+        title: assignment.title || 'Untitled assignment',
+        detail: classForAssignment(assignment)?.name || 'General',
+        assignmentId: assignment.id,
+        sortKey: `${String(new Date(Number(assignment.dueAt)).getHours()).padStart(2, '0')}:${String(new Date(Number(assignment.dueAt)).getMinutes()).padStart(2, '0')}`
+      }));
+    priorities.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    if (!priorities.length) return { state: 'empty' };
+    return {
+      html: priorities.slice(0, 5).map(item => `
+        <article class="dashboard-list-row">
+          ${item.assignmentId
+            ? `<button class="dashboard-complete-btn" type="button" data-toggle-assignment="${escapeHtml(item.assignmentId)}" aria-label="Mark ${escapeHtml(item.title)} complete">○</button>`
+            : '<span class="dashboard-event-time" aria-hidden="true">Today</span>'}
+          <div><span class="dashboard-item-kind">${escapeHtml(item.kind)} · ${escapeHtml(item.time)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></div>
+        </article>
+      `).join('')
+    };
+  });
+  bindAssignmentActions($('dashboard-priorities-content'));
+
+  renderDashboardSection('upcoming', () => {
+    const upcoming = [];
+    for (let offset = 0; offset < 7; offset += 1) {
+      const date = new Date(todayStart);
+      date.setDate(date.getDate() + offset);
+      classes.filter(item => Array.isArray(item.meetingDays)
+        && item.meetingDays.some(day => Number(day) === date.getDay()))
+        .forEach(item => {
+          const timeParts = /^(\d{1,2}):(\d{2})$/.exec(item.startTime || '');
+          const eventDate = new Date(date);
+          if (timeParts) eventDate.setHours(Number(timeParts[1]), Number(timeParts[2]), 0, 0);
+          else eventDate.setHours(23, 59, 0, 0);
+          if (eventDate < now) return;
+          upcoming.push({
+            timestamp: eventDate.getTime(),
+            kind: 'Class',
+            title: item.name || 'Class meeting',
+            detail: `${dashboardDateTime(date.getTime(), { weekday: 'short', month: 'short', day: 'numeric' })}${item.startTime ? ` · ${item.startTime}${item.endTime ? `–${item.endTime}` : ''}` : ''}`
+          });
+        });
+    }
+    assignments.filter(assignment => !assignment.completed && Number.isFinite(Number(assignment.dueAt))
+      && Number(assignment.dueAt) >= now.getTime() && Number(assignment.dueAt) < nextWeek.getTime())
+      .forEach(assignment => upcoming.push({
+        timestamp: Number(assignment.dueAt),
+        kind: 'Assignment',
+        title: assignment.title || 'Untitled assignment',
+        detail: `${dashboardDateTime(Number(assignment.dueAt))} · ${classForAssignment(assignment)?.name || 'General'}`,
+        assignmentId: assignment.id
+      }));
+    upcoming.sort((a, b) => a.timestamp - b.timestamp);
+    if (!upcoming.length) return { state: 'empty' };
+    return {
+      html: upcoming.slice(0, 6).map(item => `
+        <article class="dashboard-list-row dashboard-upcoming-row">
+          ${item.assignmentId
+            ? `<button class="dashboard-complete-btn" type="button" data-toggle-assignment="${escapeHtml(item.assignmentId)}" aria-label="Mark ${escapeHtml(item.title)} complete">○</button>`
+            : '<span class="dashboard-upcoming-dot" aria-hidden="true"></span>'}
+          <div><span class="dashboard-item-kind">${escapeHtml(item.kind)}</span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></div>
+        </article>
+      `).join('')
+    };
+  });
+  bindAssignmentActions($('dashboard-upcoming-content'));
+
+  renderDashboardSection('activity', () => {
+    const activity = [
+      ...timerSessions.map(session => ({
+        timestamp: Number(session.completedAt),
+        title: `${session.course || 'General'}${session.unit ? ` · ${session.unit}` : ''}`,
+        detail: `${Math.max(1, Math.round((Number(session.seconds) || 0) / 60))} min focus session`,
+        kind: 'Focus'
+      })),
+      ...documents.filter(documentItem => Number(documentItem.lastOpened) > 0).map(documentItem => ({
+        timestamp: Number(documentItem.lastOpened),
+        title: documentItem.title || 'Untitled document',
+        detail: `${documentItem.course || 'General'} · opened document`,
+        kind: 'Reading'
+      })),
+      ...quizResults.map(result => ({
+        timestamp: Number(result.takenAt),
+        title: result.documentTitle || 'Quiz',
+        detail: `Quiz score · ${Math.round(Number(result.score) || 0)}%`,
+        kind: 'Quiz'
+      }))
+    ].filter(item => Number.isFinite(item.timestamp) && item.timestamp > 0)
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 5);
+    if (!activity.length) return { state: 'empty' };
+    return {
+      html: activity.map(item => `
+        <article class="dashboard-list-row dashboard-activity-row">
+          <span class="dashboard-activity-kind">${escapeHtml(item.kind)}</span>
+          <div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)} · ${escapeHtml(dashboardDateTime(item.timestamp))}</small></div>
+        </article>
+      `).join('')
+    };
+  });
+
+  renderDashboardSection('continue', () => {
+    const latestDocument = documents.filter(item => Number(item.readingProgress) < 100)
+      .sort((a, b) => (Number(b.lastOpened) || Number(b.uploadedAt) || 0) - (Number(a.lastOpened) || Number(a.uploadedAt) || 0))[0];
+    if (latestDocument) {
+      const progress = Math.max(0, Math.min(100, Number(latestDocument.readingProgress) || 0));
+      return {
+        html: `<article class="dashboard-continue-card">
+          <span class="dashboard-item-kind">Document · ${escapeHtml(latestDocument.course || 'General')}</span>
+          <h3>${escapeHtml(latestDocument.title || 'Untitled document')}</h3>
+          <div class="dashboard-progress-track" role="progressbar" aria-label="Reading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></div>
+          <small>${progress}% read</small>
+          <button class="btn btn-primary" type="button" id="dashboard-continue-button" data-document-id="${escapeHtml(latestDocument.id)}">Continue reading</button>
+        </article>`
+      };
+    }
+    if (dashboardFlashcardStatus === 'loading') return { state: 'loading', message: 'Checking what is ready to study…' };
+    if (dashboardFlashcardStatus === 'error') return { state: 'error', message: `Learning recommendations are unavailable: ${dashboardFlashcardError}` };
+    if (flashcardDueCount > 0) {
+      return {
+        html: `<article class="dashboard-continue-card">
+          <span class="dashboard-item-kind">Flashcards</span>
+          <h3>Keep your knowledge fresh</h3>
+          <p>${flashcardDueCount} ${flashcardDueCount === 1 ? 'card is' : 'cards are'} ready to review.</p>
+          <button class="btn btn-primary" type="button" id="dashboard-continue-button" data-review-cards>Review flashcards</button>
+        </article>`
+      };
+    }
+    return { state: 'empty' };
+  });
+
+  renderDashboardSection('progress', () => {
+    const rows = [];
+    if (documents.length) {
+      const average = documents.reduce((sum, item) => sum + Math.max(0, Math.min(100, Number(item.readingProgress) || 0)), 0) / documents.length;
+      rows.push(dashboardProgressRow('Reading', average, `${documents.filter(item => Number(item.readingProgress) >= 100).length} of ${documents.length} documents completed`));
+    }
+    if (cards.length) {
+      const mastered = cards.filter(card => card.mastered).length;
+      rows.push(dashboardProgressRow('Flashcards', mastered / cards.length * 100, `${mastered} of ${cards.length} cards mastered`));
+    }
+    if (quizResults.length) {
+      const average = quizResults.reduce((sum, result) => sum + (Number(result.score) || 0), 0) / quizResults.length;
+      rows.push(dashboardProgressRow('Quiz average', average, `${quizResults.length} ${quizResults.length === 1 ? 'attempt' : 'attempts'}`));
+    }
+    if (!rows.length) return { state: 'empty' };
+    return { html: rows.join('') };
+  });
+
+  renderDashboardSection('revision', () => {
+    if (dashboardFlashcardStatus === 'loading') return { state: 'loading' };
+    if (dashboardFlashcardStatus === 'error') return { state: 'error', message: `Flashcard reminders are unavailable: ${dashboardFlashcardError}` };
+    if (!flashcardDueCount) return { state: 'empty' };
+    return {
+      html: `<div class="dashboard-reminder-count">${flashcardDueCount}</div>
+        <p>${flashcardDueCount === 1 ? 'flashcard is' : 'flashcards are'} due for review.</p>
+        <button class="btn btn-primary" type="button" data-review-cards>Review due cards</button>`
+    };
+  });
+
+  renderDashboardSection('actions', () => ({
+    html: `<div class="dashboard-actions-grid">
+      <button class="dashboard-action" type="button" data-dashboard-go="documents"><strong>Open documents</strong><span>Read and organize study materials</span></button>
+      <button class="dashboard-action" type="button" data-dashboard-go="notes"><strong>Open notes</strong><span>Write or revisit your notes</span></button>
+      <button class="dashboard-action" type="button" data-dashboard-go="tutor"><strong>Ask AI Tutor</strong><span>Explore a study question</span></button>
+      <button class="dashboard-action" type="button" data-dashboard-go="timer"><strong>Start focus timer</strong><span>Begin a focused study session</span></button>
+    </div>`
+  }));
+}
+
+$('panel-dashboard').addEventListener('click', event => {
+  const continueButton = event.target.closest('#dashboard-continue-button');
+  if (continueButton) {
+    if (continueButton.dataset.documentId) {
+      activatePage('documents');
+      previewDocument(continueButton.dataset.documentId);
+    } else if (continueButton.hasAttribute('data-review-cards')) {
+      activatePage('cards');
+      setFlashcardsView('review');
+    }
+    return;
+  }
+  const action = event.target.closest('[data-dashboard-go], [data-review-cards]');
+  if (!action) return;
+  if (action.dataset.dashboardGo) activatePage(action.dataset.dashboardGo);
+  if (action.hasAttribute('data-review-cards')) {
+    activatePage('cards');
+    setFlashcardsView('review');
   }
 });
 
@@ -4667,19 +4828,28 @@ function mapServerCard(card) {
 }
 
 async function refreshFlashcardData(render = true) {
-  const [cardData, deckData] = await Promise.all([
-    flashcardApi('/api/cards'),
-    flashcardApi('/api/decks')
-  ]);
-  cards = cardData.cards.map(mapServerCard);
-  decks = deckData.decks;
-  updateFlashcardDueBadge(decks.reduce((sum, deck) => sum + (Number(deck.due_count) || 0), 0));
-  if (render) {
-    renderDeckBar();
-    renderCardFilters();
-    renderCardList();
-    renderTutorOverview();
-    renderProgress();
+  try {
+    const [cardData, deckData] = await Promise.all([
+      flashcardApi('/api/cards'),
+      flashcardApi('/api/decks')
+    ]);
+    cards = cardData.cards.map(mapServerCard);
+    decks = deckData.decks;
+    dashboardFlashcardStatus = 'ready';
+    dashboardFlashcardError = '';
+    updateFlashcardDueBadge(decks.reduce((sum, deck) => sum + (Number(deck.due_count) || 0), 0));
+    if (render) {
+      renderDeckBar();
+      renderCardFilters();
+      renderCardList();
+      renderTutorOverview();
+      renderProgress();
+    }
+  } catch (error) {
+    dashboardFlashcardStatus = 'error';
+    dashboardFlashcardError = error.message || 'Could not load flashcards.';
+    renderDashboard();
+    throw error;
   }
 }
 
@@ -4773,7 +4943,9 @@ async function loadFlashcardsFromServer() {
     await refreshFlashcardData(false);
   } catch (error) {
     console.error('Flashcard storage could not be loaded', error);
-    setStatus('flashcards-storage-status', error.message || 'Could not load flashcards from the server. Your local backup is still available.');
+    dashboardFlashcardStatus = 'error';
+    dashboardFlashcardError = error.message || 'Could not load flashcards from the server.';
+    setStatus('flashcards-storage-status', `${dashboardFlashcardError} Your local backup is still available.`);
   }
 }
 

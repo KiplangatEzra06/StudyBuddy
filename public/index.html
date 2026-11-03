@@ -168,52 +168,60 @@
           <div class="page-content">
             <section class="panel" id="panel-dashboard">
               <div class="dashboard-hero">
-                <span class="hero-kicker">YOUR STUDY DAY</span>
+                <span class="hero-kicker">YOUR STUDY DESK</span>
                 <h2 class="panel-title" id="dashboard-greeting">Welcome back</h2>
-                <p class="panel-sub" id="dashboard-summary">A clear view of your schedule, deadlines, and recent progress.</p>
+                <p class="panel-sub" id="dashboard-summary">Your priorities, study activity, and next steps at a glance.</p>
               </div>
-              <div class="dashboard-stat-grid">
-                <article class="dashboard-stat"><span>Focus today</span><strong id="dashboard-focus-time">0 min</strong></article>
-                <article class="dashboard-stat"><span>Assignments due soon</span><strong id="dashboard-due-count">0</strong></article>
-                <article class="dashboard-stat"><span>Assignments completed</span><strong id="dashboard-completed-count">0</strong></article>
-                <article class="dashboard-stat"><span>Cards to review</span><strong id="dashboard-review-count">0</strong></article>
-              </div>
-              <div class="dashboard-overview-grid">
-                <section class="dashboard-card">
-                  <div class="dashboard-card-heading">
-                    <h2>Today's schedule</h2>
-                    <button class="text-btn" type="button" data-go="calendar">Open calendar</button>
-                  </div>
-                  <div class="dashboard-item-list" id="dashboard-today-schedule"></div>
+              <div class="dashboard-grid">
+                <section class="dashboard-section dashboard-section-wide" id="dashboard-priorities" aria-labelledby="dashboard-priorities-title" aria-busy="true">
+                  <div class="dashboard-section-heading"><h2 id="dashboard-priorities-title">Today's priorities</h2><button class="text-btn" type="button" data-go="calendar">Open calendar</button></div>
+                  <p class="dashboard-state" id="dashboard-priorities-loading" role="status">Loading today's priorities…</p>
+                  <div class="dashboard-section-content hidden" id="dashboard-priorities-content"></div>
+                  <p class="dashboard-state dashboard-empty hidden" id="dashboard-priorities-empty">Nothing needs your attention today.</p>
+                  <p class="dashboard-state dashboard-error hidden" id="dashboard-priorities-error" role="alert"></p>
                 </section>
-                <section class="dashboard-card">
-                  <div class="dashboard-card-heading">
-                    <h2>Coming up</h2>
-                    <button class="text-btn" type="button" data-go="assignments">View assignments</button>
-                  </div>
-                  <div class="dashboard-item-list" id="dashboard-upcoming-assignments"></div>
+                <section class="dashboard-section" id="dashboard-upcoming" aria-labelledby="dashboard-upcoming-title" aria-busy="true">
+                  <div class="dashboard-section-heading"><h2 id="dashboard-upcoming-title">Upcoming classes and assignments</h2><button class="text-btn" type="button" data-go="assignments">View assignments</button></div>
+                  <p class="dashboard-state" id="dashboard-upcoming-loading" role="status">Loading your upcoming schedule…</p>
+                  <div class="dashboard-section-content hidden" id="dashboard-upcoming-content"></div>
+                  <p class="dashboard-state dashboard-empty hidden" id="dashboard-upcoming-empty">No upcoming classes or assignments in the next 7 days.</p>
+                  <p class="dashboard-state dashboard-error hidden" id="dashboard-upcoming-error" role="alert"></p>
                 </section>
-                <section class="dashboard-card dashboard-due-card">
-                  <div class="dashboard-card-heading">
-                    <h2>Due today</h2>
-                    <span class="dashboard-due-count" id="dashboard-neon-due-count">0</span>
-                  </div>
-                  <p class="dashboard-empty" id="dashboard-neon-due-detail">No Study Loop cards due right now.</p>
-                  <button class="btn btn-primary" type="button" data-go-flashcards="review">Review due cards</button>
+                <section class="dashboard-section" id="dashboard-activity" aria-labelledby="dashboard-activity-title" aria-busy="true">
+                  <div class="dashboard-section-heading"><h2 id="dashboard-activity-title">Recent study activity</h2><button class="text-btn" type="button" data-go="progress">View progress</button></div>
+                  <p class="dashboard-state" id="dashboard-activity-loading" role="status">Loading recent activity…</p>
+                  <div class="dashboard-section-content hidden" id="dashboard-activity-content"></div>
+                  <p class="dashboard-state dashboard-empty hidden" id="dashboard-activity-empty">Your completed focus sessions and quiz attempts will appear here.</p>
+                  <p class="dashboard-state dashboard-error hidden" id="dashboard-activity-error" role="alert"></p>
                 </section>
-              </div>
-              <section class="dashboard-continue" id="dashboard-continue">
-                <div>
-                  <span class="hero-kicker">PICK UP WHERE YOU LEFT OFF</span>
-                  <h2 id="dashboard-continue-title">Ready for your next study session?</h2>
-                  <p id="dashboard-continue-detail">Choose a document, review flashcards, or start a focus session.</p>
-                </div>
-                <button class="btn btn-primary" type="button" id="dashboard-continue-button" data-go="timer">Start focus session</button>
-              </section>
-              <div class="quick-link-grid">
-                <button class="quick-link-card" data-go="documents"><span class="quick-link-icon">01</span><strong>Organize your materials</strong><span>Upload readings and keep them close.</span></button>
-                <button class="quick-link-card" data-go="cards"><span class="quick-link-icon">02</span><strong>Review flashcards</strong><span>Practice a deck at your own pace.</span></button>
-                <button class="quick-link-card" data-go="timer"><span class="quick-link-icon">03</span><strong>Start a focus session</strong><span>Make time for one small win.</span></button>
+                <section class="dashboard-section" id="dashboard-continue" aria-labelledby="dashboard-continue-heading" aria-busy="true">
+                  <div class="dashboard-section-heading"><h2 id="dashboard-continue-heading">Continue learning</h2></div>
+                  <p class="dashboard-state" id="dashboard-continue-loading" role="status">Finding where you left off…</p>
+                  <div class="dashboard-section-content hidden" id="dashboard-continue-content"></div>
+                  <p class="dashboard-state dashboard-empty hidden" id="dashboard-continue-empty">No learning activity to continue yet. Open a document or start a review.</p>
+                  <p class="dashboard-state dashboard-error hidden" id="dashboard-continue-error" role="alert"></p>
+                </section>
+                <section class="dashboard-section" id="dashboard-progress" aria-labelledby="dashboard-progress-title" aria-busy="true">
+                  <div class="dashboard-section-heading"><h2 id="dashboard-progress-title">Learning progress</h2><button class="text-btn" type="button" data-go="progress">All progress</button></div>
+                  <p class="dashboard-state" id="dashboard-progress-loading" role="status">Loading your progress…</p>
+                  <div class="dashboard-section-content hidden" id="dashboard-progress-content"></div>
+                  <p class="dashboard-state dashboard-empty hidden" id="dashboard-progress-empty">Progress will appear as you read documents, review cards, and complete quizzes.</p>
+                  <p class="dashboard-state dashboard-error hidden" id="dashboard-progress-error" role="alert"></p>
+                </section>
+                <section class="dashboard-section" id="dashboard-revision" aria-labelledby="dashboard-revision-title" aria-busy="true">
+                  <div class="dashboard-section-heading"><h2 id="dashboard-revision-title">Revision reminders</h2></div>
+                  <p class="dashboard-state" id="dashboard-revision-loading" role="status">Checking flashcards due for review…</p>
+                  <div class="dashboard-section-content hidden" id="dashboard-revision-content"></div>
+                  <p class="dashboard-state dashboard-empty hidden" id="dashboard-revision-empty">No flashcards are due for review right now.</p>
+                  <p class="dashboard-state dashboard-error hidden" id="dashboard-revision-error" role="alert"></p>
+                </section>
+                <section class="dashboard-section dashboard-section-wide" id="dashboard-actions" aria-labelledby="dashboard-actions-title" aria-busy="true">
+                  <div class="dashboard-section-heading"><h2 id="dashboard-actions-title">Quick actions</h2></div>
+                  <p class="dashboard-state" id="dashboard-actions-loading" role="status">Preparing your shortcuts…</p>
+                  <div class="dashboard-section-content hidden" id="dashboard-actions-content"></div>
+                  <p class="dashboard-state dashboard-empty hidden" id="dashboard-actions-empty">No actions are available.</p>
+                  <p class="dashboard-state dashboard-error hidden" id="dashboard-actions-error" role="alert"></p>
+                </section>
               </div>
             </section>
             <section class="panel hidden" id="panel-calendar">

@@ -84,4 +84,11 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
   assert.match(page.text, /data-tab="sessions"/);
   assert.match(page.text, /id="sidebar-collapse-toggle"/);
   assert.match(page.text, /id="menu-toggle"/);
+  for (const section of ['priorities', 'upcoming', 'activity', 'continue', 'progress', 'revision', 'actions']) {
+    assert.match(page.text, new RegExp(`id="dashboard-${section}"`));
+    assert.match(page.text, new RegExp(`id="dashboard-${section}-loading"`));
+    assert.match(page.text, new RegExp(`id="dashboard-${section}-empty"`));
+    assert.match(page.text, new RegExp(`id="dashboard-${section}-error"`));
+  }
+  assert.doesNotMatch(page.text, /class="dashboard-stat-grid"/);
 });

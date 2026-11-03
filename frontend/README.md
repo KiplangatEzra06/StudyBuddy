@@ -8,6 +8,7 @@
 - `public/components.css` defines shared button, form-control, and panel behavior. Button hover states retain their base colors and rely on focus, shadow, and motion cues rather than color changes.
 - `public/styles.css` retains app-shell and feature-specific layout rules.
 - The sidebar groups existing destinations by workspace, planner, library, learning, productivity, and insights. Assignments reuses the existing assignment view; Study Sessions focuses the existing timer-session history. Desktop sidebar collapse state is stored in local storage, and narrow layouts retain the keyboard-operable mobile drawer.
+- The dashboard is a read-only summary of existing schedule, activity, document, quiz, focus-session, and flashcard data. Its sections expose loading, empty, and error states; quick actions route to existing features.
 
 ## Runtime modules
 
