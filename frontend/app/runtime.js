@@ -1305,6 +1305,14 @@ function renderCalendar() {
   selectedMonth.setDate(1);
   selectedMonth.setMonth(selectedMonth.getMonth() + calendarMonthOffset);
   const weekdays = $('calendar-weekdays');
+  const renderWeekdayLabels = (firstDate, count = 7) => {
+    weekdays.innerHTML = Array.from({ length: count }, (_, index) => {
+      const date = new Date(firstDate);
+      date.setDate(date.getDate() + index);
+      const label = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date);
+      return `<span>${escapeHtml(label)}</span>`;
+    }).join('');
+  };
   const viewButtons = document.querySelectorAll('[data-calendar-view]');
   viewButtons.forEach(button => {
     const active = button.dataset.calendarView === calendarView;
@@ -1314,7 +1322,13 @@ function renderCalendar() {
   week.dataset.view = calendarView;
   weekdays.classList.toggle('hidden', calendarView === 'year' || calendarView === 'day');
   weekdays.style.gridTemplateColumns = calendarView === 'day' ? '1fr' : '';
-  $('calendar-selected-title').textContent = formatCalendarHeading(selectedDate);
+  week.style.gridTemplateRows = '';
+  $('calendar-selected-title').textContent = formatCalendarHeading(new Date());
+  const nextEvent = getNextCalendarEvent(new Date());
+  $('calendar-next-event').textContent = nextEvent
+    ? `${nextEvent.type === 'class' ? 'Class' : 'Assignment'} · ${nextEvent.title} · ${nextEvent.when}`
+    : 'No upcoming events scheduled.';
+  week.setAttribute('aria-label', `${calendarView[0].toUpperCase()}${calendarView.slice(1)} schedule`);
 
   if (calendarView === 'year') {
     const year = selectedDate.getFullYear();
@@ -1322,7 +1336,7 @@ function renderCalendar() {
     week.innerHTML = Array.from({ length: 12 }, (_, monthIndex) => {
       const monthDate = new Date(year, monthIndex, 1, 12);
       const monthStart = new Date(year, monthIndex, 1, 12);
-      monthStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
+      monthStart.setDate(monthStart.getDate() - monthStart.getDay());
       const days = Array.from({ length: 42 }, (_, index) => {
         const date = new Date(monthStart);
         date.setDate(monthStart.getDate() + index);
@@ -1331,7 +1345,7 @@ function renderCalendar() {
         const hasEvents = calendarEventsForDate(date).length > 0;
         return `<button type="button" class="calendar-year-date ${outsideMonth ? 'outside-month' : ''} ${dateKey === todayKey ? 'is-today' : ''} ${dateKey === calendarSelectedDateKey ? 'is-selected' : ''} ${hasEvents ? 'has-events' : ''}" data-calendar-date="${dateKey}" aria-label="${escapeHtml(formatCalendarHeading(date))}${hasEvents ? ', events scheduled' : ''}">${date.getDate()}</button>`;
       }).join('');
-      return `<section class="calendar-year-month"><h3>${escapeHtml(new Intl.DateTimeFormat(undefined, { month: 'long' }).format(monthDate))}</h3><div class="calendar-year-weekdays" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div><div class="calendar-year-dates">${days}</div></section>`;
+      return `<section class="calendar-year-month"><h3>${escapeHtml(new Intl.DateTimeFormat(undefined, { month: 'long' }).format(monthDate))}</h3><div class="calendar-year-weekdays" aria-hidden="true"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div><div class="calendar-year-dates">${days}</div></section>`;
     }).join('');
   } else {
     let startDate;
@@ -1342,15 +1356,19 @@ function renderCalendar() {
       $('calendar-range').textContent = new Intl.DateTimeFormat(undefined, { month: 'long', day: 'numeric', year: 'numeric' }).format(selectedDate);
     } else if (calendarView === 'week') {
       startDate = new Date(selectedDate);
-      startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
+      startDate.setDate(startDate.getDate() - startDate.getDay());
       daysToRender = 7;
+      renderWeekdayLabels(startDate);
       const endDate = new Date(startDate);
       endDate.setDate(startDate.getDate() + 6);
       $('calendar-range').textContent = `${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(startDate)} – ${new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(endDate)}`;
     } else {
       startDate = new Date(selectedMonth);
-      startDate.setDate(startDate.getDate() - ((startDate.getDay() + 6) % 7));
-      daysToRender = 42;
+      startDate.setDate(startDate.getDate() - startDate.getDay());
+      renderWeekdayLabels(startDate);
+      const daysInMonth = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0).getDate();
+      daysToRender = Math.ceil((selectedMonth.getDay() + daysInMonth) / 7) * 7;
+      week.style.gridTemplateRows = `repeat(${daysToRender / 7}, minmax(0, 1fr))`;
       $('calendar-range').textContent = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(selectedMonth);
     }
     week.innerHTML = Array.from({ length: daysToRender }, (_, index) => {
@@ -1358,7 +1376,7 @@ function renderCalendar() {
       date.setDate(startDate.getDate() + index);
       const dateKey = localDateKey(date);
       const events = calendarEventsForDate(date);
-      const visibleLimit = calendarView === 'month' ? 2 : 12;
+      const visibleLimit = calendarView === 'month' ? 4 : 12;
       const outsideMonth = calendarView === 'month' && date.getMonth() !== selectedMonth.getMonth();
       const dayClasses = [
         'calendar-day',
@@ -1368,11 +1386,14 @@ function renderCalendar() {
       ].filter(Boolean).join(' ');
       const chips = events.slice(0, visibleLimit).map(event => calendarEventMarkup(event, dateKey)).join('');
       const more = events.length > visibleLimit
-        ? `<button type="button" class="calendar-more-events" data-calendar-more="${dateKey}">+${events.length - visibleLimit}</button>`
+        ? `<button type="button" class="calendar-more-events" data-calendar-more="${dateKey}" aria-label="View ${events.length - visibleLimit} more events">+${events.length - visibleLimit}</button>`
         : '';
       return `<article class="${dayClasses}" data-calendar-cell="${dateKey}">
-        <div class="calendar-day-events" data-event-count="${events.length}">${chips}${more}</div>
-        <button type="button" class="calendar-date-number" data-calendar-date="${dateKey}" aria-label="Open ${escapeHtml(formatCalendarHeading(date))}">${date.getDate()}</button>
+        <div class="calendar-day-header">
+          <button type="button" class="calendar-date-number" data-calendar-date="${dateKey}" aria-label="Open ${escapeHtml(formatCalendarHeading(date))}">${date.getDate()}</button>
+          ${more}
+        </div>
+        <div class="calendar-day-events" data-event-count="${events.length}">${chips}</div>
       </article>`;
     }).join('');
   }
@@ -1386,6 +1407,16 @@ function renderCalendar() {
   }));
   week.querySelectorAll('[data-calendar-date]').forEach(button => button.addEventListener('click', event => {
     event.stopPropagation();
+    if (calendarView === 'year') {
+      calendarSelectedDateKey = button.dataset.calendarDate;
+      const selectedYearDate = new Date(`${calendarSelectedDateKey}T12:00:00`);
+      const currentMonth = new Date();
+      calendarMonthOffset = (selectedYearDate.getFullYear() - currentMonth.getFullYear()) * 12
+        + selectedYearDate.getMonth() - currentMonth.getMonth();
+      calendarView = 'month';
+      renderCalendar();
+      return;
+    }
     openCalendarDay(button.dataset.calendarDate);
   }));
   week.querySelectorAll('[data-calendar-cell]').forEach(cell => cell.addEventListener('click', event => {
@@ -1438,7 +1469,8 @@ function getNextCalendarEvent(fromDate) {
 }
 
 function calendarEventMarkup(event, dateKey) {
-  const className = `calendar-event ${event.type}-event ${event.completed || event.past ? 'is-muted' : ''}`;
+  const upcoming = event.type === 'assignment' && !event.completed && !event.past;
+  const className = `calendar-event ${event.type}-event ${upcoming ? 'is-upcoming' : ''} ${event.completed || event.past ? 'is-muted' : ''}`.trim();
   if (event.type === 'assignment') {
     return `<button type="button" class="${className}" data-edit-assignment="${escapeHtml(event.id)}" aria-label="Edit ${escapeHtml(event.title)}"><span class="calendar-event-kind">${event.completed ? 'Completed' : 'Assignment'}</span><strong>${escapeHtml(event.title)}</strong><span class="calendar-event-time">${escapeHtml(event.detail)}</span></button>`;
   }
@@ -1453,7 +1485,6 @@ function openCalendarDay(dateKey) {
   calendarMonthOffset = (selectedMonth.getFullYear() - currentMonth.getFullYear()) * 12
     + selectedMonth.getMonth() - currentMonth.getMonth();
   renderCalendar();
-  $('calendar-selected-title').textContent = formatCalendarHeading(date);
   const events = calendarEventsForDate(date).map(event => event.type === 'assignment'
     ? `<article class="calendar-event assignment-event ${event.completed ? 'is-muted' : ''}"><strong>${escapeHtml(event.title)}</strong><time>${escapeHtml(formatDueDate(Number(assignments.find(item => item.id === event.id)?.dueAt)))}</time><button type="button" data-edit-assignment="${escapeHtml(event.id)}">Edit assignment</button></article>`
     : `<article class="calendar-event class-event"><strong>${escapeHtml(event.title)}</strong><time>${escapeHtml(event.detail || 'Class')}</time></article>`);

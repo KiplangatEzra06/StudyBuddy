@@ -208,7 +208,10 @@
                 <div class="calendar-heading">
                   <p class="calendar-eyebrow">YOUR STUDY SCHEDULE</p>
                   <h2 id="calendar-selected-title" aria-live="polite"></h2>
-                  <p class="calendar-selected-subtitle">Classes and assignment deadlines, all in one place.</p>
+                  <div class="calendar-next-event" aria-live="polite">
+                    <span>Next event</span>
+                    <strong id="calendar-next-event">No upcoming events scheduled.</strong>
+                  </div>
                 </div>
                 <div class="calendar-view-toggle" role="group" aria-label="Calendar view">
                   <button type="button" data-calendar-view="day" aria-pressed="false">Day</button>
@@ -224,15 +227,15 @@
                   <button class="btn" id="calendar-next-week" type="button" aria-label="Next period">→</button>
                   <strong class="calendar-range" id="calendar-range" aria-live="polite"></strong>
                 </div>
+                <div class="calendar-toolbar-actions">
+                  <button class="btn btn-sm" id="calendar-agenda-open" type="button" aria-label="Upcoming assignments">Agenda</button>
+                  <label class="reminder-setting">
+                    <input type="checkbox" id="calendar-reminders-enabled">
+                    <span><strong>Reminders</strong><small>Notifications while StudyBuddy is open.</small></span>
+                  </label>
+                  <p class="status" id="calendar-reminder-status" role="status" aria-live="polite"></p>
+                </div>
                 <button class="btn btn-primary" id="calendar-add-assignment" type="button">Add assignment</button>
-              </div>
-              <div class="calendar-options">
-                <button class="btn btn-sm" id="calendar-agenda-open" type="button">Upcoming assignments</button>
-                <label class="reminder-setting">
-                  <input type="checkbox" id="calendar-reminders-enabled">
-                  <span><strong>Assignment reminders</strong><small>Notifications while StudyBuddy is open.</small></span>
-                </label>
-                <p class="status" id="calendar-reminder-status" role="status" aria-live="polite"></p>
               </div>
               <div class="calendar-weekdays" id="calendar-weekdays" aria-hidden="true">
                 <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
@@ -253,16 +256,21 @@
               <p class="panel-title">Classes</p>
               <p class="panel-sub">Keep course details, weekly meeting times, and assignment deadlines together. Your information stays in this browser.</p>
               <div class="toolbar">
-                <button class="btn btn-primary" id="add-class-btn" type="button">Add class</button>
-                <button class="btn" id="classes-add-assignment" type="button">Add assignment</button>
                 <button class="btn btn-sm active" id="classes-view-classes" type="button" aria-pressed="true">Classes</button>
                 <button class="btn btn-sm" id="classes-view-assignments" type="button" aria-pressed="false">Assignments</button>
                 <input type="search" id="classes-search" placeholder="Filter this list" aria-label="Filter classes or assignments">
               </div>
+              <div class="classes-subtab-heading">
+                <h2 class="settings-heading">Classes</h2>
+                <button class="classes-add-button" id="add-class-btn" type="button" aria-label="Add class" title="Add class">+</button>
+              </div>
               <div class="item-list class-list" id="class-list" data-fit-paginate data-fit-item-height="116" aria-label="Classes"></div>
               <div class="empty-state hidden" id="classes-empty">No classes yet. Add a class to organize your schedule.</div>
               <section class="upcoming-section">
-                <h2 class="settings-heading">Assignments</h2>
+                <div class="classes-subtab-heading">
+                  <h2 class="settings-heading">Assignments</h2>
+                  <button class="classes-add-button" id="classes-add-assignment" type="button" aria-label="Add assignment" title="Add assignment">+</button>
+                </div>
                 <div class="item-list" id="classes-assignment-list" data-fit-paginate data-fit-item-height="100" aria-label="Assignments"></div>
                 <div class="empty-state hidden" id="assignments-empty">No assignments yet. Add one to track a due date.</div>
               </section>
