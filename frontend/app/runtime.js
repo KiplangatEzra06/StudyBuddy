@@ -13,6 +13,7 @@ import {
   mergeRecords,
   validateBackup
 } from '../features/backup-data.js';
+import { renderTutorMarkdown } from '../features/tutor-markdown.js';
 
 const TUTOR_MATERIAL_KEY = 'studybuddy-tutor-material';
 const NOTE_CLEANUP_KEY = 'studybuddy-note-cleanup-version';
@@ -34,6 +35,8 @@ let flashcardSelectedSource = 'paste';
 let notes = [];
 let quizResults = [];
 let timerSessions = [];
+let progressDataLoading = true;
+let progressDeckStatsRequest = 0;
 let classes = [];
 let assignments = [];
 let activeSubject = 'all';
@@ -61,6 +64,7 @@ let chatAbortController = null;
 let chatWakeTimer = 0;
 let chatWakeMessage = '';
 let chatStreamingReply = '';
+let chatStreamingMessageElement = null;
 let chatAtLatest = true;
 let lastTutorQuestion = '';
 let appInitialization = null;
@@ -1189,7 +1193,7 @@ function activatePage(page) {
   $('progress-panel-title').textContent = page === 'sessions' ? 'Study Sessions' : 'Progress';
   $('progress-panel-description').textContent = page === 'sessions'
     ? 'Review your recent focus sessions and time spent studying.'
-    : 'A plain dashboard for reading progress, flashcard mastery, quiz accuracy, study time, and sessions this week.';
+    : 'A plain dashboard for reading progress, flashcard mastery, quiz accuracy, study time, and recent study sessions.';
   $('progress-sessions-title').textContent = page === 'sessions' ? 'Session history' : 'Recent sessions';
   $('classes-panel-title').textContent = page === 'assignments' ? 'Assignments' : 'Courses';
   $('classes-panel-description').textContent = page === 'assignments'
@@ -2402,9 +2406,9 @@ function addMsg(role, text, container = $('chat-log'), messageData = {}) {
     if (text) {
       const content = document.createElement('div');
       content.className = 'assistant-content';
-      content.innerHTML = renderTutorMarkdown(text);
+      content.innerHTML = renderTutorMarkdown(text, messageData.sources || []);
       div.appendChild(content);
-      bindMarkdownCodeButtons(content);
+      bindMarkdownCodeButtons(content, { truncateLongCode: false });
       renderMathInElementSafe(content);
     }
   }
@@ -2550,6 +2554,7 @@ function renderTutorChatPage() {
   const log = $('chat-log');
   const previousScrollTop = log.scrollTop;
   log.replaceChildren();
+  chatStreamingMessageElement = null;
   const latestAssistantIndex = chatHistory.reduce((latest, message, index) =>
     message.role === 'assistant' && !message.retry ? index : latest, -1);
   chatHistory.forEach((message, index) => {
@@ -2579,6 +2584,7 @@ function renderTutorChatPage() {
   }
   if (chatPending && chatHistory.at(-1)?.role === 'user') {
     const loading = addMsg('assistant', chatStreamingReply, log);
+    chatStreamingMessageElement = loading;
     if (!chatStreamingReply) loading.classList.add('loading');
     if (!chatStreamingReply) {
       const indicator = document.createElement('div');
@@ -2606,6 +2612,35 @@ function renderTutorChatPage() {
   requestAnimationFrame(() => {
     if (chatAtLatest) log.scrollTop = log.scrollHeight;
     else log.scrollTop = previousScrollTop;
+  });
+}
+
+function updateTutorStreamingReply(text) {
+  chatStreamingReply = text;
+  if (!chatStreamingMessageElement?.isConnected) {
+    renderTutorChatPage();
+    return;
+  }
+
+  const message = chatStreamingMessageElement;
+  const content = message.querySelector('.assistant-content');
+  if (text) {
+    message.classList.remove('loading');
+    const renderedContent = content || document.createElement('div');
+    renderedContent.className = 'assistant-content';
+    renderedContent.innerHTML = renderTutorMarkdown(text);
+    if (!content) message.insertBefore(renderedContent, message.querySelector('.msg-time'));
+    bindMarkdownCodeButtons(renderedContent, { truncateLongCode: false });
+    renderMathInElementSafe(renderedContent);
+    if (chatWakeMessage) {
+      const wakeMessage = document.createElement('span');
+      wakeMessage.className = 'chat-wake-message';
+      wakeMessage.textContent = chatWakeMessage;
+      renderedContent.append(wakeMessage);
+    }
+  }
+  requestAnimationFrame(() => {
+    if (chatAtLatest) $('chat-log').scrollTop = $('chat-log').scrollHeight;
   });
 }
 
@@ -2910,8 +2945,7 @@ async function sendChat(retryQuestion = '', retryTimestamp = 0) {
     let data;
     if (res.headers.get('content-type')?.includes('text/event-stream')) {
       data = await readTutorStream(res, partial => {
-        chatStreamingReply = partial;
-        renderTutorChatPage();
+        updateTutorStreamingReply(partial);
       });
     } else {
       try {
@@ -3749,40 +3783,6 @@ function normalizeTutorReply(value) {
     .trim();
 }
 
-function renderTutorMarkdown(markdown) {
-  const source = normalizeTutorReply(markdown);
-  if (!window.marked?.parse || !window.DOMPurify?.sanitize) {
-    console.error('Tutor Markdown libraries are unavailable; rendering the reply as safe plain text.');
-    return `<p>${escapeHtml(source).replace(/\n/g, '<br>')}</p>`;
-  }
-  const html = window.marked.parse(source, { gfm: true, breaks: false });
-  const sanitized = window.DOMPurify.sanitize(html);
-  const template = document.createElement('template');
-  template.innerHTML = sanitized;
-  template.content.querySelectorAll('pre').forEach(pre => {
-    const code = pre.querySelector('code');
-    const languageClass = [...(code?.classList || [])].find(className => className.startsWith('language-'));
-    const language = languageClass ? languageClass.slice('language-'.length) : 'Code';
-    const block = document.createElement('section');
-    block.className = 'markdown-code-block';
-    const header = document.createElement('header');
-    header.className = 'markdown-code-header';
-    const label = document.createElement('span');
-    label.textContent = language;
-    const copy = document.createElement('button');
-    copy.type = 'button';
-    copy.dataset.copyCode = '';
-    copy.textContent = 'Copy code';
-    copy.setAttribute('aria-label', `Copy ${language} code`);
-    header.append(label, copy);
-    pre.replaceWith(block);
-    block.append(header, pre);
-  });
-  const result = document.createElement('div');
-  result.append(template.content.cloneNode(true));
-  return result.innerHTML;
-}
-
 function renderMathInElementSafe(container) {
   if (typeof window.renderMathInElement !== 'function') return;
   window.renderMathInElement(container, {
@@ -3797,23 +3797,33 @@ function renderMathInElementSafe(container) {
   });
 }
 
-function bindMarkdownCodeButtons(container) {
+function bindMarkdownCodeButtons(container, { truncateLongCode = true } = {}) {
   container.querySelectorAll('[data-copy-code]').forEach(button => button.addEventListener('click', async () => {
-    const code = button.closest('.markdown-code-block').querySelector('code').dataset.fullCode
-      || button.closest('.markdown-code-block').querySelector('pre').textContent;
+    const codeElement = button.closest('.markdown-code-block').querySelector('code');
+    const code = codeElement.dataset.fullCode ?? codeElement.textContent;
     try {
       await navigator.clipboard.writeText(code);
       button.textContent = 'Copied';
+      button.setAttribute('aria-label', 'Code copied to clipboard');
     } catch {
       button.textContent = 'Copy unavailable';
+      button.setAttribute('aria-label', 'Copy unavailable');
     }
+    clearTimeout(button.copyFeedbackTimeout);
+    button.copyFeedbackTimeout = setTimeout(() => {
+      const block = button.closest('.markdown-code-block');
+      if (!block) return;
+      button.textContent = 'Copy code';
+      const language = block.querySelector('.markdown-code-header span').textContent;
+      button.setAttribute('aria-label', language && language !== 'Code' ? `Copy ${language} code` : 'Copy code');
+    }, 1800);
   }));
   container.querySelectorAll('.markdown-code-block').forEach(block => {
     const code = block.querySelector('code');
     const fullCode = code.textContent;
     code.dataset.fullCode = fullCode;
     const lines = fullCode.split('\n');
-    if (lines.length <= 20 || block.querySelector('[data-expand-code]')) return;
+    if (!truncateLongCode || lines.length <= 20 || block.querySelector('[data-expand-code]')) return;
     code.textContent = lines.slice(0, 20).join('\n');
     const expand = document.createElement('button');
     expand.type = 'button';
@@ -4491,16 +4501,86 @@ function createSvgElement(tag, attributes = {}) {
   return element;
 }
 
-function showChartEmpty(container, message) {
+function formatStudyDuration(seconds) {
+  const minutes = Math.round(Math.max(0, Number(seconds) || 0) / 60);
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours) return `${hours} h${remainingMinutes ? ` ${remainingMinutes} min` : ''}`;
+  return `${minutes} min`;
+}
+
+function pluralizeCount(count, singular) {
+  return `${count} ${singular}${count === 1 ? '' : 's'}`;
+}
+
+function showChartEmpty(container, message, summary) {
   container.replaceChildren();
+  container.setAttribute('aria-busy', 'false');
+  container.setAttribute('aria-label', summary);
   const empty = document.createElement('p');
   empty.className = 'chart-empty';
+  empty.setAttribute('role', 'status');
   empty.textContent = message;
   container.appendChild(empty);
 }
 
-function renderStudyTimeChart() {
-  const container = $('study-time-chart');
+function showChartLoading(container) {
+  container.replaceChildren();
+  container.setAttribute('aria-busy', 'true');
+  const skeleton = document.createElement('div');
+  skeleton.className = 'chart-loading';
+  skeleton.setAttribute('aria-hidden', 'true');
+  container.appendChild(skeleton);
+}
+
+function showChartError(container, message, retry) {
+  container.replaceChildren();
+  container.setAttribute('aria-busy', 'false');
+  const error = document.createElement('div');
+  error.className = 'chart-message';
+  error.setAttribute('role', 'alert');
+  const text = document.createElement('p');
+  text.textContent = message;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'progress-inline-action';
+  button.textContent = 'Retry';
+  button.addEventListener('click', retry);
+  error.append(text, button);
+  container.appendChild(error);
+}
+
+function renderProgressChart(containerId, renderer, errorMessage) {
+  const container = $(containerId);
+  if (progressDataLoading) {
+    showChartLoading(container);
+    return;
+  }
+  try {
+    renderer(container);
+  } catch (error) {
+    console.error(`Rendering ${containerId} failed`, error);
+    showChartError(container, errorMessage, () => renderProgressChart(containerId, renderer, errorMessage));
+  }
+}
+
+function appendSvgTitle(element, text) {
+  const title = createSvgElement('title');
+  title.textContent = text;
+  element.appendChild(title);
+}
+
+function addChartAxisLine(svg, x1, y1, x2, y2, label) {
+  const line = createSvgElement('line', { x1, y1, x2, y2, class: 'chart-grid-line' });
+  svg.appendChild(line);
+  if (label !== undefined) {
+    const text = createSvgElement('text', { x: x1 - 8, y: y1 + 4, 'text-anchor': 'end', class: 'chart-axis-label' });
+    text.textContent = label;
+    svg.appendChild(text);
+  }
+}
+
+function renderStudyTimeChart(container) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days = Array.from({ length: 7 }, (_, index) => {
@@ -4508,146 +4588,297 @@ function renderStudyTimeChart() {
     date.setDate(today.getDate() - (6 - index));
     const seconds = timerSessions.reduce((total, session) => {
       const completed = new Date(session.completedAt);
-      return completed.toDateString() === date.toDateString() ? total + (session.seconds || 0) : total;
+      return completed.getFullYear() === date.getFullYear()
+        && completed.getMonth() === date.getMonth()
+        && completed.getDate() === date.getDate()
+        ? total + (Number(session.seconds) || 0)
+        : total;
     }, 0);
     return { date, seconds };
   });
+  const totalMinutes = Math.round(days.reduce((sum, day) => sum + day.seconds, 0) / 60);
+  const summary = `Study time, last 7 days: ${totalMinutes} ${totalMinutes === 1 ? 'minute' : 'minutes'} total.`;
   if (!days.some(day => day.seconds > 0)) {
-    showChartEmpty(container, 'Complete a focus session to see your weekly study time.');
+    showChartEmpty(container, 'No study time recorded in the last 7 days. Complete a focus timer session to see daily totals.', summary);
     return;
   }
-  const svg = createSvgElement('svg', { viewBox: '0 0 420 180', role: 'presentation', class: 'chart-svg' });
-  const maxMinutes = Math.max(30, Math.ceil(Math.max(...days.map(day => day.seconds / 60)) / 30) * 30);
+
+  container.setAttribute('aria-busy', 'false');
+  container.setAttribute('aria-label', summary);
+  const svg = createSvgElement('svg', { viewBox: '0 0 448 210', role: 'group', 'aria-label': summary, class: 'chart-svg' });
+  const plot = { left: 48, top: 28, bottom: 164 };
+  const maxMinutes = Math.max(15, Math.ceil(Math.max(...days.map(day => day.seconds / 60)) / 15) * 15);
+  const ticks = [0, Math.ceil(maxMinutes / 2), maxMinutes];
+  ticks.forEach(minutes => {
+    const y = plot.bottom - (minutes / maxMinutes) * (plot.bottom - plot.top);
+    addChartAxisLine(svg, plot.left, y, 438, y, String(minutes));
+  });
+  const axisTitle = createSvgElement('text', { x: 48, y: 17, class: 'chart-axis-title' });
+  axisTitle.textContent = 'Minutes';
+  svg.appendChild(axisTitle);
   days.forEach((day, index) => {
-    const x = 26 + index * 56;
-    const barHeight = (day.seconds / 60 / maxMinutes) * 112;
+    const x = 61 + index * 54;
+    const minutes = day.seconds / 60;
+    const height = (minutes / maxMinutes) * (plot.bottom - plot.top);
+    const value = Math.round(minutes);
+    const isToday = index === 6;
     const bar = createSvgElement('rect', {
       x,
-      y: 132 - barHeight,
+      y: plot.bottom - Math.max(height, 2),
       width: 30,
-      height: Math.max(barHeight, 2),
-      rx: 8,
-      class: 'chart-bar'
+      height: Math.max(height, 2),
+      rx: 4,
+      class: `chart-bar${isToday ? ' today' : ''}`,
+      tabindex: '0',
+      'aria-label': `${day.date.toLocaleDateString(undefined, { weekday: 'long' })}${isToday ? ', today' : ''}: ${value} ${value === 1 ? 'minute' : 'minutes'}`
     });
-    bar.setAttribute('aria-label', `${day.date.toLocaleDateString(undefined, { weekday: 'long' })}: ${Math.round(day.seconds / 60)} minutes`);
+    appendSvgTitle(bar, `${day.date.toLocaleDateString(undefined, { weekday: 'long' })}${isToday ? ' (today)' : ''}: ${value} min`);
     svg.appendChild(bar);
-    const label = createSvgElement('text', { x: x + 15, y: 157, 'text-anchor': 'middle', class: 'chart-axis-label' });
-    label.textContent = day.date.toLocaleDateString(undefined, { weekday: 'short' });
-    svg.appendChild(label);
+    const valueLabel = createSvgElement('text', {
+      x: x + 15,
+      y: Math.max(plot.top - 2, plot.bottom - height - 7),
+      'text-anchor': 'middle',
+      class: 'chart-value-label'
+    });
+    valueLabel.textContent = String(value);
+    svg.appendChild(valueLabel);
+    const dayLabel = createSvgElement('text', { x: x + 15, y: 183, 'text-anchor': 'middle', class: 'chart-axis-label' });
+    dayLabel.textContent = day.date.toLocaleDateString(undefined, { weekday: 'short' });
+    svg.appendChild(dayLabel);
+    if (isToday) {
+      const todayLabel = createSvgElement('text', { x: x + 15, y: 198, 'text-anchor': 'middle', class: 'chart-today-label' });
+      todayLabel.textContent = 'Today';
+      svg.appendChild(todayLabel);
+    }
   });
   container.replaceChildren(svg);
 }
 
-function renderQuizAccuracyChart() {
-  const container = $('quiz-accuracy-chart');
-  const attempts = quizResults.slice().sort((a, b) => a.takenAt - b.takenAt).slice(-8);
+function renderQuizAccuracyChart(container) {
+  const attempts = quizResults.slice().sort((a, b) => Number(a.takenAt) - Number(b.takenAt)).slice(-8);
   if (!attempts.length) {
-    showChartEmpty(container, 'Take a quiz to start your accuracy trend.');
+    showChartEmpty(container, 'No quiz attempts recorded yet. Take a quiz to see your accuracy trend.', 'Quiz accuracy: no recorded attempts.');
     return;
   }
-  const svg = createSvgElement('svg', { viewBox: '0 0 420 180', role: 'presentation', class: 'chart-svg' });
+  const average = Math.round(attempts.reduce((sum, attempt) => sum + (Number(attempt.score) || 0), 0) / attempts.length);
+  const summary = `Quiz accuracy, recent attempts: ${attempts.length} ${attempts.length === 1 ? 'attempt' : 'attempts'}, average ${average}%.`;
+  container.setAttribute('aria-busy', 'false');
+  container.setAttribute('aria-label', summary);
+  const svg = createSvgElement('svg', { viewBox: '0 0 448 210', role: 'group', 'aria-label': summary, class: 'chart-svg' });
+  const plot = { left: 48, top: 28, bottom: 164 };
+  [0, 50, 100].forEach(percent => {
+    const y = plot.bottom - (percent / 100) * (plot.bottom - plot.top);
+    addChartAxisLine(svg, plot.left, y, 438, y, `${percent}%`);
+  });
+  const axisTitle = createSvgElement('text', { x: 48, y: 17, class: 'chart-axis-title' });
+  axisTitle.textContent = 'Accuracy';
+  svg.appendChild(axisTitle);
   const points = attempts.map((attempt, index) => {
-    const x = attempts.length === 1 ? 210 : 30 + index * (360 / (attempts.length - 1));
-    const y = 132 - (Math.max(0, Math.min(100, attempt.score)) / 100) * 108;
-    const point = createSvgElement('circle', { cx: x, cy: y, r: 5, class: 'chart-point' });
+    const score = Math.max(0, Math.min(100, Number(attempt.score) || 0));
+    const x = attempts.length === 1 ? 243 : 58 + index * (360 / (attempts.length - 1));
+    const y = plot.bottom - (score / 100) * (plot.bottom - plot.top);
+    const date = new Date(Number(attempt.takenAt) || attempt.takenAt);
+    const dateLabel = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const point = createSvgElement('circle', {
+      cx: x,
+      cy: y,
+      r: 5,
+      class: 'chart-point',
+      tabindex: '0',
+      'aria-label': `Quiz attempt ${index + 1}, ${dateLabel}: ${Math.round(score)}%`
+    });
+    appendSvgTitle(point, `${dateLabel}: ${Math.round(score)}%`);
     svg.appendChild(point);
-    const label = createSvgElement('text', { x, y: 157, 'text-anchor': 'middle', class: 'chart-axis-label' });
-    label.textContent = new Date(attempt.takenAt).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' });
-    svg.appendChild(label);
+    const valueLabel = createSvgElement('text', { x, y: Math.max(21, y - 10), 'text-anchor': 'middle', class: 'chart-value-label' });
+    valueLabel.textContent = `${Math.round(score)}%`;
+    svg.appendChild(valueLabel);
+    const dateText = createSvgElement('text', { x, y: 184, 'text-anchor': 'middle', class: 'chart-axis-label' });
+    dateText.textContent = dateLabel;
+    svg.appendChild(dateText);
     return `${x},${y}`;
   });
-  svg.insertBefore(createSvgElement('polyline', { points: points.join(' '), class: 'chart-line' }), svg.firstChild);
+  svg.insertBefore(createSvgElement('polyline', { points: points.join(' '), class: 'chart-line' }), svg.childNodes[1]);
   container.replaceChildren(svg);
 }
 
-function renderFlashcardMasteryChart() {
-  const container = $('flashcard-mastery-chart');
+function renderFlashcardMasteryChart(container) {
   if (!cards.length) {
-    showChartEmpty(container, 'Add flashcards to track your mastery.');
+    showChartEmpty(container, 'No flashcards available. Add cards to track mastery.', 'Flashcard mastery: no cards available.');
     return;
   }
   const mastered = cards.filter(card => card.mastered).length;
+  const notMastered = cards.length - mastered;
   const percent = Math.round((mastered / cards.length) * 100);
-  const circumference = 2 * Math.PI * 48;
-  const svg = createSvgElement('svg', { viewBox: '0 0 180 140', role: 'presentation', class: 'chart-svg mastery-donut' });
-  svg.appendChild(createSvgElement('circle', { cx: 90, cy: 68, r: 48, class: 'donut-track' }));
-  svg.appendChild(createSvgElement('circle', {
-    cx: 90,
-    cy: 68,
-    r: 48,
-    class: 'donut-progress',
-    'stroke-dasharray': `${circumference * percent / 100} ${circumference}`,
-    transform: 'rotate(-90 90 68)'
-  }));
-  const label = createSvgElement('text', { x: 90, y: 72, 'text-anchor': 'middle', class: 'donut-label' });
-  label.textContent = `${percent}%`;
-  svg.appendChild(label);
-  const legend = createSvgElement('text', { x: 90, y: 134, 'text-anchor': 'middle', class: 'chart-axis-label' });
-  legend.textContent = `${mastered} of ${cards.length} mastered`;
-  svg.appendChild(legend);
-  container.replaceChildren(svg);
+  const summary = `Flashcard mastery: ${mastered} mastered, ${notMastered} not yet mastered, ${cards.length} total.`;
+  container.replaceChildren();
+  container.setAttribute('aria-busy', 'false');
+  container.setAttribute('aria-label', summary);
+  const group = document.createElement('div');
+  group.className = 'mastery-chart';
+  const value = document.createElement('p');
+  value.className = 'mastery-chart-summary';
+  value.textContent = `${percent}% mastered`;
+  const track = document.createElement('div');
+  track.className = 'mastery-segmented-bar';
+  track.setAttribute('aria-hidden', 'true');
+  const masteredSegment = document.createElement('span');
+  masteredSegment.className = 'mastery-segment mastered';
+  masteredSegment.style.width = `${(mastered / cards.length) * 100}%`;
+  const remainingSegment = document.createElement('span');
+  remainingSegment.className = 'mastery-segment not-mastered';
+  remainingSegment.style.width = `${(notMastered / cards.length) * 100}%`;
+  track.append(masteredSegment, remainingSegment);
+  const legend = document.createElement('ul');
+  legend.className = 'mastery-legend';
+  [
+    { label: 'Mastered', count: mastered, className: 'mastered' },
+    { label: 'Not yet mastered', count: notMastered, className: 'not-mastered' }
+  ].forEach(item => {
+    const row = document.createElement('li');
+    const swatch = document.createElement('span');
+    swatch.className = `mastery-swatch ${item.className}`;
+    swatch.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = item.label;
+    const count = document.createElement('strong');
+    count.textContent = String(item.count);
+    row.append(swatch, label, count);
+    legend.appendChild(row);
+  });
+  group.append(value, track, legend);
+  container.appendChild(group);
+}
+
+function makeProgressGroup(groups, name) {
+  const course = String(name || 'General').trim() || 'General';
+  if (!groups.has(course)) groups.set(course, { course, docs: [], notes: [], cards: [], quizzes: [], sessions: [] });
+  return groups.get(course);
+}
+
+function renderExpandableList(container, count, label) {
+  const previous = container.nextElementSibling;
+  if (previous?.classList.contains('fit-page-controls') || previous?.classList.contains('progress-list-toggle')) {
+    previous.remove();
+  }
+  const items = [...container.children];
+  let expanded = count > 6 && container.dataset.expanded === 'true';
+  container.dataset.expanded = String(expanded);
+  items.forEach((item, index) => { item.hidden = !expanded && index >= 6; });
+  if (count <= 6) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'progress-list-toggle';
+  button.setAttribute('aria-controls', container.id);
+  button.setAttribute('aria-expanded', String(expanded));
+  const updateLabel = () => {
+    button.textContent = expanded ? 'Show fewer' : `View all ${count} ${label}`;
+    button.setAttribute('aria-expanded', String(expanded));
+  };
+  updateLabel();
+  button.addEventListener('click', () => {
+    const nextExpanded = button.getAttribute('aria-expanded') !== 'true';
+    container.dataset.expanded = String(nextExpanded);
+    items.forEach((item, index) => { item.hidden = !nextExpanded && index >= 6; });
+    button.setAttribute('aria-expanded', String(nextExpanded));
+    expanded = nextExpanded;
+    updateLabel();
+  });
+  container.after(button);
 }
 
 function renderProgress() {
-  const totalSeconds = timerSessions.reduce((sum, s) => sum + (s.seconds || 0), 0);
-  const completedDocs = documents.filter(d => (d.readingProgress || 0) >= 100).length;
-  const quizAvg = quizResults.length ? Math.round(quizResults.reduce((sum, r) => sum + r.score, 0) / quizResults.length) : 0;
-  const mastery = cards.length ? Math.round((cards.filter(c => c.mastered).length / cards.length) * 100) : 0;
-  $('stat-hours').textContent = `${(totalSeconds / 3600).toFixed(totalSeconds >= 36000 ? 0 : 1)}h`;
-  $('stat-docs').textContent = completedDocs;
+  const totalSeconds = timerSessions.reduce((sum, session) => sum + (Number(session.seconds) || 0), 0);
+  const completedDocs = documents.filter(document => (document.readingProgress || 0) >= 100).length;
+  const quizAvg = quizResults.length ? Math.round(quizResults.reduce((sum, result) => sum + (Number(result.score) || 0), 0) / quizResults.length) : 0;
+  const masteredCount = cards.filter(card => card.mastered).length;
+  const mastery = cards.length ? Math.round((masteredCount / cards.length) * 100) : 0;
+  $('stat-hours').textContent = formatStudyDuration(totalSeconds);
+  $('stat-hours-help').textContent = `${formatStudyDuration(totalSeconds)} across completed focus sessions.`;
+  $('stat-docs').textContent = String(completedDocs);
+  $('stat-docs-help').textContent = `${completedDocs} of ${documents.length} ${documents.length === 1 ? 'document' : 'documents'} at 100% reading.`;
   $('stat-quiz').textContent = `${quizAvg}%`;
+  $('stat-quiz-help').textContent = quizResults.length
+    ? `Average across ${pluralizeCount(quizResults.length, 'recorded attempt')}.`
+    : 'Take a quiz to record an accuracy score.';
   $('stat-cards').textContent = `${mastery}%`;
-  renderStudyTimeChart();
-  renderQuizAccuracyChart();
-  renderFlashcardMasteryChart();
+  $('stat-cards-help').textContent = `${masteredCount} of ${cards.length} ${cards.length === 1 ? 'card' : 'cards'} mastered.`;
+
+  renderProgressChart('study-time-chart', renderStudyTimeChart, 'Study time chart could not be rendered.');
+  renderProgressChart('quiz-accuracy-chart', renderQuizAccuracyChart, 'Quiz accuracy chart could not be rendered.');
+  if (progressDataLoading) {
+    showChartLoading($('flashcard-mastery-chart'));
+  } else if (dashboardFlashcardStatus === 'error' && !cards.length) {
+    const container = $('flashcard-mastery-chart');
+    showChartError(container, dashboardFlashcardError || 'Flashcard mastery could not be loaded.', () => {
+      showChartLoading(container);
+      refreshFlashcardData(false).then(renderProgress).catch(error => {
+        console.error('Retrying Progress flashcard data failed', error);
+        showChartError(container, error.message || 'Flashcard mastery could not be loaded.', () => renderProgress());
+      });
+    });
+  } else {
+    renderProgressChart('flashcard-mastery-chart', renderFlashcardMasteryChart, 'Flashcard mastery chart could not be rendered.');
+  }
+
   const groups = new Map();
-  documents.forEach(d => {
-    const key = d.course || 'General';
-    if (!groups.has(key)) groups.set(key, { course: key, docs: [], cards: [], quizzes: [], sessions: [] });
-    groups.get(key).docs.push(d);
-  });
-  cards.forEach(c => {
-    const key = c.subject || 'General';
-    if (!groups.has(key)) groups.set(key, { course: key, docs: [], cards: [], quizzes: [], sessions: [] });
-    groups.get(key).cards.push(c);
-  });
-  quizResults.forEach(q => {
-    const key = q.course || 'General';
-    if (!groups.has(key)) groups.set(key, { course: key, docs: [], cards: [], quizzes: [], sessions: [] });
-    groups.get(key).quizzes.push(q);
-  });
-  timerSessions.forEach(s => {
-    const key = s.course || 'General';
-    if (!groups.has(key)) groups.set(key, { course: key, docs: [], cards: [], quizzes: [], sessions: [] });
-    groups.get(key).sessions.push(s);
-  });
-  $('progress-list').innerHTML = [...groups.values()].map(g => {
-    const read = g.docs.length ? Math.round(g.docs.reduce((sum, d) => sum + (d.readingProgress || 0), 0) / g.docs.length) : 0;
-    const gMastery = g.cards.length ? Math.round((g.cards.filter(c => c.mastered).length / g.cards.length) * 100) : 0;
-    const gQuiz = g.quizzes.length ? Math.round(g.quizzes.reduce((sum, q) => sum + q.score, 0) / g.quizzes.length) : 0;
-    const hours = g.sessions.reduce((sum, s) => sum + (s.seconds || 0), 0) / 3600;
-    return `<article class="course-progress-card"><div class="course-progress-heading"><h4>${escapeHtml(g.course)}</h4><span>${g.docs.length} documents</span></div><div class="course-progress-metrics"><span><strong>${read}%</strong> reading</span><span><strong>${gMastery}%</strong> card mastery</span><span><strong>${gQuiz}%</strong> quiz average</span><span><strong>${hours.toFixed(1)}h</strong> study time</span></div></article>`;
-  }).join('') || '<div class="empty-state">No progress yet.</div>';
-  const weekStart = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const recent = timerSessions.filter(s => s.completedAt >= weekStart).sort((a, b) => b.completedAt - a.completedAt);
-  $('session-list').innerHTML = recent.slice(0, 8).map(s => `
-    <div class="list-row">
-      <div><h4>${escapeHtml(s.course || 'General')} - ${escapeHtml(s.unit || 'General')}</h4><p>${Math.round(s.seconds / 60)} minutes on ${new Date(s.completedAt).toLocaleDateString()}</p></div>
-      <button class="icon-btn btn-danger" type="button" data-delete-session="${escapeHtml(s.id)}" aria-label="Delete focus session" title="Delete">×</button>
-    </div>
-  `).join('') || '<div class="empty-state">No sessions this week.</div>';
-  paginateToFit($('progress-list'), { label: 'Course progress pages', itemHeight: 86 });
+  documents.forEach(document => makeProgressGroup(groups, document.course).docs.push(document));
+  notes.forEach(note => makeProgressGroup(groups, note.tag).notes.push(note));
+  cards.forEach(card => makeProgressGroup(groups, card.subject).cards.push(card));
+  quizResults.forEach(result => makeProgressGroup(groups, result.course).quizzes.push(result));
+  timerSessions.forEach(session => makeProgressGroup(groups, session.course).sessions.push(session));
+  const courses = [...groups.values()];
+  $('progress-list').innerHTML = courses.map(group => {
+    const read = group.docs.length
+      ? Math.round(group.docs.reduce((sum, document) => sum + (Number(document.readingProgress) || 0), 0) / group.docs.length)
+      : 0;
+    const groupMastery = group.cards.length
+      ? Math.round((group.cards.filter(card => card.mastered).length / group.cards.length) * 100)
+      : 0;
+    const groupQuiz = group.quizzes.length
+      ? Math.round(group.quizzes.reduce((sum, result) => sum + (Number(result.score) || 0), 0) / group.quizzes.length)
+      : null;
+    const groupSeconds = group.sessions.reduce((sum, session) => sum + (Number(session.seconds) || 0), 0);
+    const metrics = [
+      group.docs.length ? `<span><strong>${read}%</strong> reading</span>` : '',
+      group.cards.length ? `<span><strong>${groupMastery}%</strong> card mastery</span>` : '',
+      groupQuiz === null ? '' : `<span><strong>${groupQuiz}%</strong> quiz accuracy</span>`,
+      group.sessions.length ? `<span><strong>${escapeHtml(formatStudyDuration(groupSeconds))}</strong> study time</span>` : ''
+    ].filter(Boolean).join('');
+    return `<article class="course-progress-card">
+      <div class="course-progress-heading"><h4>${escapeHtml(group.course)}</h4></div>
+      <p class="course-progress-counts">${pluralizeCount(group.docs.length, 'document')} · ${pluralizeCount(group.notes.length, 'note')} · ${pluralizeCount(group.cards.length, 'flashcard')}</p>
+      ${group.docs.length ? `<div class="course-reading-progress" role="progressbar" aria-label="${escapeHtml(group.course)} reading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${read}"><span style="width:${read}%"></span></div>` : ''}
+      ${metrics ? `<div class="course-progress-metrics">${metrics}</div>` : ''}
+    </article>`;
+  }).join('') || '<p class="empty-state">No course progress yet. Add a document, note, flashcard, quiz, or focus session to see it here.</p>';
+  renderExpandableList($('progress-list'), courses.length, 'courses');
+
+  const recent = timerSessions.slice().sort((a, b) => Number(b.completedAt) - Number(a.completedAt));
+  $('session-list').innerHTML = recent.map(session => {
+    const course = String(session.course || '').trim();
+    const unit = String(session.unit || '').trim();
+    const isGeneral = value => !value || value.toLocaleLowerCase() === 'general';
+    const label = !isGeneral(course) ? course : !isGeneral(unit) ? unit : 'General study';
+    const date = new Date(Number(session.completedAt) || session.completedAt);
+    const dateLabel = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return `<div class="list-row">
+      <div><h4>${escapeHtml(label)}</h4><p>${escapeHtml(formatStudyDuration(session.seconds))} · ${escapeHtml(dateLabel)}</p></div>
+      <button class="icon-btn btn-danger progress-delete-session" type="button" data-delete-session="${escapeHtml(session.id)}" aria-label="Delete session" title="Delete session">×</button>
+    </div>`;
+  }).join('') || '<p class="empty-state">No study sessions recorded yet. Complete a focus timer session to see it here.</p>';
+  renderExpandableList($('session-list'), recent.length, 'sessions');
   $('session-list').querySelectorAll('[data-delete-session]').forEach(button => button.addEventListener('click', async () => {
     const session = timerSessions.find(item => item.id === button.dataset.deleteSession);
     if (!session) return;
+    const sessionDate = new Date(Number(session.completedAt) || session.completedAt)
+      .toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
     const confirmed = await confirmDeletion({
       title: 'Delete focus session?',
-      description: `Delete the ${Math.round(session.seconds / 60)}-minute focus session from ${new Date(session.completedAt).toLocaleDateString()}?`,
+      description: `Delete the ${formatStudyDuration(session.seconds)} focus session from ${sessionDate}?`,
       affected: 'Study-time totals, charts, and course progress will be recalculated.'
     });
     if (confirmed) await softDeleteRecords([{ collection: 'timerSessions', ids: [session.id] }], 'Focus session deleted.');
   }));
-  paginateToFit($('session-list'), { label: 'Study session pages', itemHeight: 72 });
 }
 
 function renderProgressWeakDecks(deckStats) {
@@ -4670,12 +4901,34 @@ function renderProgressWeakDecks(deckStats) {
 }
 
 async function loadProgressDeckStats() {
+  const container = $('progress-weak-decks');
+  const requestId = ++progressDeckStatsRequest;
+  container.setAttribute('aria-busy', 'true');
+  container.replaceChildren();
+  const skeleton = document.createElement('div');
+  skeleton.className = 'progress-deck-skeleton';
+  skeleton.setAttribute('aria-hidden', 'true');
+  container.appendChild(skeleton);
   try {
     const data = await learningApi('/api/stats/topics');
+    if (requestId !== progressDeckStatsRequest) return;
+    container.setAttribute('aria-busy', 'false');
     renderProgressWeakDecks(data.decks || data.topics || []);
   } catch (error) {
     console.error('Loading weak deck stats failed', error);
-    $('progress-weak-decks').innerHTML = `<p class="status">${escapeHtml(error.message || 'Could not load weak decks.')}</p>`;
+    if (requestId !== progressDeckStatsRequest) return;
+    container.setAttribute('aria-busy', 'false');
+    container.replaceChildren();
+    const message = document.createElement('p');
+    message.className = 'status';
+    message.setAttribute('role', 'alert');
+    message.textContent = error.message || 'Could not load weak decks.';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'progress-inline-action';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', loadProgressDeckStats);
+    container.append(message, retry);
   }
 }
 
@@ -5919,6 +6172,7 @@ async function init() {
     await idbSet(NOTE_CLEANUP_KEY, 1);
   }
   await loadFlashcardsFromServer();
+  progressDataLoading = false;
   renderTimer();
   renderEverything();
   renderFlashcardSourceOptions();

@@ -14,6 +14,7 @@ Stage B separates the application entrypoints and infrastructure responsibilitie
 - `frontend/services/storage.js` owns the existing IndexedDB `margin-db` database and `kv` store helpers.
 - `frontend/features/calendar-data.js` owns calendar date keys, event derivation, and next-event selection; the DOM rendering and interactions remain in the runtime.
 - `frontend/features/backup-data.js` owns backup schema validation and ID-preserving collection merges; browser storage and import/export interactions remain in the runtime.
+- `frontend/features/tutor-markdown.js` owns safe Tutor Markdown rendering, including streamable code/table markup and source citation chips; it does not modify conversation history.
 - Express serves `frontend/` from `/frontend`; there is no build step.
 
 The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. The Assignments navigation view reuses the existing course/assignment panel and records; Study Sessions reuses the existing timer-session history and progress data. Neither creates a new data model or placeholder page. The dashboard aggregates existing local document, class, assignment, quiz, and focus-session data plus server-backed flashcard due counts, and each dashboard section exposes loading, empty, and error states.

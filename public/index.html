@@ -815,42 +815,49 @@
 
     <section class="panel hidden" id="panel-progress">
       <p class="panel-title" id="progress-panel-title">Progress</p>
-      <p class="panel-sub" id="progress-panel-description">A plain dashboard for reading progress, flashcard mastery, quiz accuracy, study time, and
-        sessions this week.</p>
+      <p class="panel-sub" id="progress-panel-description">A plain dashboard for reading progress, flashcard mastery, quiz accuracy, study time, and recent study sessions.</p>
       <div class="stat-grid">
-        <div class="stat"><b id="stat-hours">0h</b><span>study time</span></div>
-        <div class="stat"><b id="stat-docs">0</b><span>completed documents</span></div>
-        <div class="stat"><b id="stat-quiz">0%</b><span>quiz accuracy</span></div>
-        <div class="stat"><b id="stat-cards">0%</b><span>flashcard mastery</span></div>
+        <div class="stat"><b id="stat-hours">0 min</b><span>study time</span><small id="stat-hours-help">Time across completed focus sessions.</small></div>
+        <div class="stat"><b id="stat-docs">0</b><span>completed documents</span><small id="stat-docs-help">Documents at 100% reading.</small></div>
+        <div class="stat"><b id="stat-quiz">0%</b><span>quiz accuracy</span><small id="stat-quiz-help">Average across recorded attempts.</small></div>
+        <div class="stat"><b id="stat-cards">0%</b><span>flashcard mastery</span><small id="stat-cards-help">Mastered cards out of all cards.</small></div>
       </div>
       <div class="progress-charts">
         <section class="chart-card">
           <div class="chart-heading"><h3>Study time</h3><span>Last 7 days</span></div>
-          <div id="study-time-chart" class="chart-area" role="img" aria-label="Weekly study time chart"></div>
+          <div id="study-time-chart" class="chart-area" role="group" aria-label="Study time chart loading" aria-busy="true">
+            <div class="chart-loading" aria-hidden="true"></div>
+          </div>
         </section>
         <section class="chart-card">
           <div class="chart-heading"><h3>Quiz accuracy</h3><span>Recent attempts</span></div>
-          <div id="quiz-accuracy-chart" class="chart-area" role="img" aria-label="Recent quiz accuracy chart"></div>
+          <div id="quiz-accuracy-chart" class="chart-area" role="group" aria-label="Quiz accuracy chart loading" aria-busy="true">
+            <div class="chart-loading" aria-hidden="true"></div>
+          </div>
         </section>
         <section class="chart-card mastery-chart-card">
           <div class="chart-heading"><h3>Flashcard mastery</h3><span>All cards</span></div>
-          <div id="flashcard-mastery-chart" class="chart-area" role="img" aria-label="Flashcard mastery chart"></div>
+          <div id="flashcard-mastery-chart" class="chart-area" role="group" aria-label="Flashcard mastery chart loading" aria-busy="true">
+            <div class="chart-loading" aria-hidden="true"></div>
+          </div>
         </section>
       </div>
-      <div class="split">
-        <div>
+      <div class="progress-details">
+        <section class="progress-detail-card">
           <h3 class="panel-title sub-panel-title">By course</h3>
-          <div class="item-list" id="progress-list" data-fit-paginate data-fit-item-height="86" aria-label="Course progress"></div>
-        </div>
-        <div>
+          <div class="item-list" id="progress-list" aria-label="Course progress"></div>
+        </section>
+        <section class="progress-detail-card">
           <h3 class="panel-title sub-panel-title" id="progress-sessions-title">Recent sessions</h3>
-          <div class="item-list" id="session-list" data-fit-paginate data-fit-item-height="72" aria-label="Study sessions"></div>
-        </div>
+          <div class="item-list" id="session-list" aria-label="Study sessions"></div>
+        </section>
+        <section class="progress-detail-card progress-weak-decks">
+          <h3 class="panel-title sub-panel-title">Weak decks</h3>
+          <div class="learning-topic-stats" id="progress-weak-decks" aria-live="polite" aria-busy="false">
+            <p class="empty-state">Weak deck stats will appear here.</p>
+          </div>
+        </section>
       </div>
-      <section class="progress-weak-decks">
-        <h3 class="panel-title sub-panel-title">Weak decks</h3>
-        <div class="learning-topic-stats" id="progress-weak-decks"></div>
-      </section>
     </section>
 
     <section class="panel hidden" id="panel-settings">

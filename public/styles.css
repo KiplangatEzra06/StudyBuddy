@@ -5340,7 +5340,7 @@
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--color-accent);
+      background: var(--btn-primary);
       animation: tutor-typing 1s ease-in-out infinite;
     }
 
@@ -6729,7 +6729,7 @@
     }
 
     .calendar-day.is-today > header strong {
-      background: var(--color-accent);
+      background: var(--btn-primary);
       color: #fff;
     }
 
@@ -12441,5 +12441,697 @@
       #panel-documents .upload-dropzone,
       #panel-calendar .calendar-day {
         transition: none;
+      }
+    }
+
+    #panel-tutor #chat-log {
+      min-width: 0;
+      align-items: stretch;
+    }
+
+    #panel-tutor .msg.assistant {
+      width: fit-content;
+      max-width: min(82ch, 100%);
+      min-width: 0;
+      box-sizing: border-box;
+      overflow: visible;
+    }
+
+    #panel-tutor .assistant-content {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      flex: 0 1 auto;
+      overflow: visible;
+      overflow-wrap: anywhere;
+    }
+
+    #panel-tutor .markdown-table-wrap {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      margin: 12px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      scrollbar-color: var(--color-border) transparent;
+      scrollbar-width: thin;
+    }
+
+    #panel-tutor .assistant-content table {
+      width: max-content;
+      min-width: 100%;
+      margin: 0;
+      border-collapse: collapse;
+      table-layout: auto;
+      color: var(--color-text);
+      font-size: 13px;
+    }
+
+    #panel-tutor .assistant-content th,
+    #panel-tutor .assistant-content td {
+      min-width: 4rem;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--color-border);
+      border-right: 1px solid var(--color-border);
+      color: var(--color-text);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: break-word;
+    }
+
+    #panel-tutor .assistant-content th:last-child,
+    #panel-tutor .assistant-content td:last-child {
+      border-right: 0;
+    }
+
+    #panel-tutor .assistant-content tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    #panel-tutor .assistant-content th {
+      background: var(--color-surface-soft);
+      font-weight: 700;
+    }
+
+    #panel-tutor .assistant-content tbody tr:nth-child(even) {
+      background: var(--color-surface-soft);
+    }
+
+    #panel-tutor .assistant-content tbody tr:hover {
+      background: var(--color-violet-soft);
+    }
+
+    #panel-tutor .assistant-content :not(pre) > code {
+      display: inline;
+      padding: 1px 5px;
+      border: 1px solid var(--color-border);
+      border-radius: 5px;
+      background: var(--color-surface-soft);
+      color: var(--color-text);
+      font: .92em/1.35 Consolas, "SFMono-Regular", Menlo, monospace;
+      overflow-wrap: anywhere;
+      vertical-align: baseline;
+    }
+
+    #panel-tutor .markdown-code-block {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      margin: 12px 0;
+      overflow: visible;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-soft);
+    }
+
+    #panel-tutor .markdown-code-header {
+      min-width: 0;
+      padding: 7px 10px;
+      background: var(--color-surface-soft);
+    }
+
+    #panel-tutor .markdown-code-header > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: var(--color-text-muted);
+      font-weight: 650;
+    }
+
+    #panel-tutor .markdown-code-header button {
+      min-height: 30px;
+      flex: 0 0 auto;
+      padding: 4px 9px;
+      border: 1px solid var(--btn-primary);
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--btn-primary);
+      font: 600 12px/1.2 var(--font-sans);
+      cursor: pointer;
+    }
+
+    #panel-tutor .markdown-code-header button:hover,
+    #panel-tutor .markdown-code-header button:focus-visible {
+      background: var(--color-violet-soft);
+    }
+
+    #panel-tutor .markdown-code-block pre {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      max-height: none;
+      margin: 0;
+      padding: 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+      background: var(--color-surface-soft);
+      color: var(--color-text);
+      white-space: pre;
+      scrollbar-color: var(--color-border) transparent;
+      scrollbar-width: thin;
+    }
+
+    #panel-tutor .markdown-code-block pre code {
+      display: block;
+      width: max-content;
+      min-width: 100%;
+      max-width: none;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--color-text);
+      font: 13px/1.55 Consolas, "SFMono-Regular", Menlo, monospace;
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+
+    #panel-tutor .citation-chip {
+      display: inline-block;
+      max-width: 100%;
+      margin: 0 2px;
+      padding: 1px 7px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-pill);
+      background: var(--color-surface-soft);
+      color: var(--color-text-muted);
+      font: 600 .88em/1.5 var(--font-sans);
+      overflow-wrap: anywhere;
+      vertical-align: baseline;
+    }
+
+    #panel-tutor button.citation-chip {
+      color: var(--color-violet);
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    #panel-tutor button.citation-chip:hover,
+    #panel-tutor button.citation-chip:focus-visible {
+      border-color: var(--color-violet);
+      background: var(--color-violet-soft);
+    }
+
+    @media (max-width: 600px) {
+      #panel-tutor .msg.assistant {
+        max-width: 96%;
+      }
+
+      #panel-tutor .assistant-content,
+      #panel-tutor .markdown-table-wrap,
+      #panel-tutor .markdown-code-block {
+        min-width: 0;
+      }
+
+      #panel-tutor .assistant-content table {
+        font-size: 13px;
+      }
+    }
+
+    #panel-progress:not(.hidden) {
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    #panel-progress .stat-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      flex: 0 0 auto;
+      gap: 12px;
+    }
+
+    #panel-progress .stat {
+      min-width: 0;
+      min-height: 126px;
+      align-content: start;
+      gap: 7px;
+      padding: 16px;
+    }
+
+    #panel-progress .stat small {
+      color: var(--color-text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+
+    #panel-progress .progress-charts {
+      display: grid;
+      flex: 0 0 auto;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-auto-rows: 1fr;
+      align-items: stretch;
+      gap: 14px;
+      margin: 0;
+      overflow: visible;
+    }
+
+    #panel-progress .chart-card,
+    #panel-progress .progress-detail-card {
+      display: flex;
+      min-width: 0;
+      min-height: 250px;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface);
+      box-shadow: var(--shadow-soft);
+    }
+
+    #panel-progress .chart-heading {
+      flex: 0 0 auto;
+      align-items: flex-start;
+    }
+
+    #panel-progress .chart-heading h3,
+    #panel-progress .split .sub-panel-title,
+    #panel-progress .progress-detail-card > .sub-panel-title {
+      margin: 0;
+      color: var(--color-text);
+      font: 600 16px/1.3 var(--font-display);
+    }
+
+    #panel-progress .chart-heading span {
+      color: var(--color-text-muted);
+      font-size: 11px;
+      text-align: right;
+    }
+
+    #panel-progress .chart-area {
+      display: grid;
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 190px;
+      height: auto;
+      place-items: center;
+      padding: 8px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-soft);
+    }
+
+    #panel-progress .chart-area svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      max-height: none;
+      overflow: visible;
+    }
+
+    #panel-progress .chart-grid-line {
+      stroke: var(--color-border);
+      stroke-width: 1;
+    }
+
+    #panel-progress .chart-axis-label,
+    #panel-progress .chart-axis-title,
+    #panel-progress .chart-value-label,
+    #panel-progress .chart-today-label {
+      fill: var(--color-text-muted);
+      font-family: Calibri, Carlito, "Segoe UI", system-ui, sans-serif;
+      font-size: 10px;
+    }
+
+    #panel-progress .chart-axis-title {
+      font-size: 9px;
+      font-weight: 600;
+    }
+
+    #panel-progress .chart-value-label,
+    #panel-progress .chart-today-label {
+      fill: var(--color-text);
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    #panel-progress .chart-today-label {
+      fill: var(--btn-primary);
+    }
+
+    #panel-progress .chart-bar {
+      fill: var(--btn-primary);
+      opacity: .82;
+    }
+
+    #panel-progress .chart-bar.today {
+      stroke: var(--color-text);
+      stroke-dasharray: 4 2;
+      stroke-width: 2;
+      opacity: 1;
+    }
+
+    #panel-progress .chart-line {
+      fill: none;
+      stroke: var(--btn-primary);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 3;
+    }
+
+    #panel-progress .chart-point {
+      fill: var(--color-surface);
+      stroke: var(--btn-primary);
+      stroke-width: 3;
+    }
+
+    #panel-progress .chart-point:hover,
+    #panel-progress .chart-point:focus-visible,
+    #panel-progress .chart-bar:focus-visible {
+      stroke: var(--color-text);
+      stroke-width: 3;
+      outline: none;
+    }
+
+    #panel-progress .chart-empty,
+    #panel-progress .chart-message {
+      max-width: 34ch;
+      margin: 0;
+      color: var(--color-text-muted);
+      font-size: 13px;
+      line-height: 1.55;
+      text-align: center;
+    }
+
+    #panel-progress .chart-message p,
+    #panel-progress .progress-weak-decks .status {
+      margin: 0 0 10px;
+      color: var(--color-text);
+    }
+
+    #panel-progress .progress-inline-action,
+    #panel-progress .progress-list-toggle {
+      min-height: 34px;
+      padding: 6px 11px;
+      border: 1px solid var(--btn-primary);
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--btn-primary);
+      font: 600 12px/1.3 Calibri, Carlito, "Segoe UI", system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    #panel-progress .progress-inline-action:hover,
+    #panel-progress .progress-list-toggle:hover {
+      background: var(--color-accent-soft);
+    }
+
+    #panel-progress .progress-inline-action:focus-visible,
+    #panel-progress .progress-list-toggle:focus-visible,
+    #panel-progress .progress-delete-session:focus-visible {
+      outline: 3px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+
+    #panel-progress .chart-loading {
+      width: 100%;
+      height: 100%;
+      min-height: 150px;
+      border-radius: var(--radius-sm);
+      background: var(--color-border);
+      opacity: .45;
+      animation: progress-skeleton-pulse 1.2s ease-in-out infinite alternate;
+    }
+
+    #panel-progress .mastery-chart {
+      display: grid;
+      width: min(100%, 320px);
+      gap: 16px;
+    }
+
+    #panel-progress .mastery-chart-summary {
+      margin: 0;
+      color: var(--color-text);
+      font: 700 25px/1.2 var(--font-display);
+      text-align: center;
+    }
+
+    #panel-progress .mastery-segmented-bar {
+      display: flex;
+      height: 22px;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-pill);
+      background: var(--color-surface);
+    }
+
+    #panel-progress .mastery-segment.mastered {
+      background: var(--btn-primary);
+    }
+
+    #panel-progress .mastery-segment.not-mastered {
+      background: repeating-linear-gradient(135deg, var(--color-surface-soft) 0 5px, var(--color-border) 5px 7px);
+    }
+
+    #panel-progress .mastery-legend {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    #panel-progress .mastery-legend li {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      color: var(--color-text);
+      font-size: 13px;
+    }
+
+    #panel-progress .mastery-legend strong {
+      font-variant-numeric: tabular-nums;
+    }
+
+    #panel-progress .mastery-swatch {
+      width: 12px;
+      height: 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 3px;
+    }
+
+    #panel-progress .mastery-swatch.mastered {
+      border-color: var(--btn-primary);
+      background: var(--btn-primary);
+    }
+
+    #panel-progress .mastery-swatch.not-mastered {
+      background: repeating-linear-gradient(135deg, var(--color-surface-soft) 0 4px, var(--color-text-muted) 4px 5px);
+    }
+
+    #panel-progress .progress-details {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: stretch;
+      gap: 14px;
+    }
+
+    #panel-progress .progress-detail-card {
+      min-height: 0;
+      height: 100%;
+      align-items: stretch;
+    }
+
+    #panel-progress .progress-detail-card .item-list {
+      display: grid;
+      min-width: 0;
+      min-height: 0;
+      gap: 8px;
+      overflow: visible;
+    }
+
+    #panel-progress .progress-list-toggle {
+      align-self: flex-start;
+    }
+
+    #panel-progress .course-progress-card,
+    #panel-progress .progress-weak-deck-card {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-soft);
+      box-shadow: none;
+    }
+
+    #panel-progress .course-progress-heading {
+      margin: 0;
+    }
+
+    #panel-progress .course-progress-heading h4 {
+      overflow-wrap: anywhere;
+      color: var(--color-text);
+      font: 600 14px/1.35 var(--font-display);
+    }
+
+    #panel-progress .course-progress-counts {
+      margin: 0;
+      color: var(--color-text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    #panel-progress .course-progress-metrics {
+      gap: 7px 12px;
+    }
+
+    #panel-progress .course-progress-metrics span {
+      color: var(--color-text-muted);
+      font-size: 12px;
+    }
+
+    #panel-progress .course-progress-metrics strong {
+      color: var(--color-text);
+    }
+
+    #panel-progress .course-reading-progress {
+      height: 5px;
+      overflow: hidden;
+      border-radius: var(--radius-pill);
+      background: var(--color-border);
+    }
+
+    #panel-progress .course-reading-progress span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--btn-primary);
+    }
+
+    #panel-progress .progress-detail-card .list-row {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-soft);
+    }
+
+    #panel-progress .progress-detail-card .list-row > div {
+      min-width: 0;
+    }
+
+    #panel-progress .progress-detail-card .list-row h4 {
+      overflow-wrap: anywhere;
+      color: var(--color-text);
+    }
+
+    #panel-progress .progress-detail-card .list-row p {
+      margin: 4px 0 0;
+      color: var(--color-text-muted);
+      font-size: 12px;
+    }
+
+    #panel-progress .progress-delete-session {
+      flex: 0 0 auto;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      transition: background-color .15s ease, border-color .15s ease;
+    }
+
+    #panel-progress .progress-delete-session:hover {
+      border-color: var(--color-border);
+      background: var(--color-error-soft);
+    }
+
+    #panel-progress .progress-weak-decks .learning-topic-stats {
+      display: grid;
+      min-width: 0;
+      gap: 8px;
+    }
+
+    #panel-progress .progress-weak-decks .progress-weak-deck-card {
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-soft);
+      box-shadow: none;
+    }
+
+    #panel-progress .progress-weak-decks .empty-state,
+    #panel-progress .progress-weak-decks .status,
+    #panel-progress .progress-detail-card .empty-state {
+      margin: 0;
+      color: var(--color-text-muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    #panel-progress .progress-deck-skeleton {
+      height: 108px;
+      border-radius: var(--radius-sm);
+      background: var(--color-border);
+      opacity: .45;
+      animation: progress-skeleton-pulse 1.2s ease-in-out infinite alternate;
+    }
+
+    #panel-progress.sessions-view > .progress-charts,
+    #panel-progress.sessions-view > .progress-details > :not(:nth-child(2)) {
+      display: none;
+    }
+
+    #panel-progress.sessions-view > .progress-details {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    @keyframes progress-skeleton-pulse {
+      from { opacity: .25; }
+      to { opacity: .55; }
+    }
+
+    @media (max-width: 900px) {
+      #panel-progress .stat-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      #panel-progress .progress-charts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      #panel-progress .mastery-chart-card,
+      #panel-progress .progress-details > .progress-weak-decks {
+        grid-column: 1 / -1;
+      }
+
+      #panel-progress .progress-details {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 600px) {
+      #panel-progress .progress-charts,
+      #panel-progress .progress-details {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      #panel-progress .mastery-chart-card,
+      #panel-progress .progress-details > .progress-weak-decks {
+        grid-column: auto;
+      }
+
+      #panel-progress .chart-card {
+        min-height: 240px;
+      }
+    }
+
+    @media (max-width: 380px) {
+      #panel-progress .stat-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #panel-progress .chart-loading,
+      #panel-progress .progress-deck-skeleton {
+        animation: none;
       }
     }
