@@ -530,17 +530,16 @@
     .auth-brand {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
       margin-bottom: 20px;
       color: var(--color-text);
-      font: 600 23px Georgia, serif;
       text-decoration: none;
     }
 
-    .auth-brand svg {
-      width: 40px;
-      height: 40px;
-      color: var(--brand-purple);
+    .auth-brand img {
+      width: min(100%, 260px);
+      max-height: 84px;
+      height: auto;
+      object-fit: contain;
     }
 
     .auth-card h1 {
@@ -2701,19 +2700,42 @@
       padding-bottom: 20px;
     }
 
+    .brand > svg {
+      display: none;
+    }
+
     .brand-logo {
       display: block;
       width: 204px;
       max-width: 100%;
       height: 48px;
-      overflow: visible;
-      color: var(--color-accent);
+      object-fit: contain;
+      object-position: left center;
     }
 
     .brand-logo-mark-only {
       display: none;
       width: 44px;
       height: 44px;
+      object-fit: contain;
+    }
+
+    :root[data-theme="dark"] .auth-brand img,
+    :root[data-theme="dark"] .brand img {
+      padding: 4px;
+      border-radius: 8px;
+      background: #ffffff;
+      box-sizing: border-box;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root[data-theme="system"] .auth-brand img,
+      :root[data-theme="system"] .brand img {
+        padding: 4px;
+        border-radius: 8px;
+        background: #ffffff;
+        box-sizing: border-box;
+      }
     }
 
     .brand-logo-word {

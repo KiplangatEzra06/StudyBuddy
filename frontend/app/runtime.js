@@ -872,7 +872,7 @@ function setTheme(theme) {
   document.querySelector('meta[name="theme-color"]').setAttribute('content', selected === 'dark'
     || (selected === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
     ? '#151927'
-    : '#f5f6fb');
+    : '#4c2bd1');
   $('theme-select').value = selected;
   const dark = effectiveTheme() === 'dark';
   $('theme-toggle').setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} theme`);

@@ -5,9 +5,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StudyBuddy - your study desk</title>
-  <meta name="theme-color" content="#f5f6fb">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="description" content="Learn. Practice. Grow. Your personal study workspace.">
+  <meta name="theme-color" content="#4c2bd1">
+  <meta property="og:title" content="StudyBuddy">
+  <meta property="og:description" content="Learn. Practice. Grow.">
+  <meta property="og:image" content="https://studybuddy2-r2i6.onrender.com/brand/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/brand/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="48x48" href="/brand/favicon-48.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png">
+  <link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <script>
     (() => {
@@ -26,11 +34,7 @@
   <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
     <div class="auth-card">
       <a class="auth-brand" href="#" aria-label="StudyBuddy">
-        <svg viewBox="0 0 64 64" aria-hidden="true">
-          <path d="M10 19c8-4 15-3 22 1v25c-7-4-14-5-22-1zM32 20c7-4 14-5 22-1v25c-8-4-15-3-22-1zM32 20v25" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
-          <path d="m45 8 2.4 5 5.5.8-4 3.9.9 5.5-4.8-2.6-4.9 2.6.9-5.5-4-3.9 5.6-.8z" fill="currentColor"/>
-        </svg>
-        <span>StudyBuddy</span>
+        <img src="/brand/logo-full.png" alt="">
       </a>
       <h1 id="auth-title">Welcome back</h1>
       <p class="panel-sub">Sign in to continue to your study desk.</p>
@@ -50,6 +54,8 @@
   <div class="app-shell hidden" id="app-shell">
     <aside class="sidebar" id="sidebar" aria-label="Main sidebar">
       <a class="brand" href="#" aria-label="StudyBuddy home">
+        <img class="brand-logo-mark-only" src="/brand/logo-mark.png" alt="">
+        <img class="brand-logo" src="/brand/logo-full.png" alt="">
         <svg class="brand-logo-mark-only" viewBox="0 0 64 64" aria-hidden="true">
           <path d="M10 19c8-4 15-3 22 1v25c-7-4-14-5-22-1zM32 20c7-4 14-5 22-1v25c-8-4-15-3-22 1zM32 20v25" fill="none" stroke="var(--color-accent)" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
           <path d="m45 8 2.4 5 5.5.8-4 3.9.9 5.5-4.8-2.6-4.9 2.6.9-5.5-4-3.9 5.6-.8z" fill="var(--color-accent)"/>
