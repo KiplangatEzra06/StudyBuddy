@@ -2401,7 +2401,10 @@ function addMsg(role, text, container = $('chat-log'), messageData = {}) {
     const avatar = document.createElement('span');
     avatar.className = 'msg-avatar tutor-avatar';
     avatar.setAttribute('aria-hidden', 'true');
-    avatar.textContent = 'S';
+    const avatarImage = document.createElement('img');
+    avatarImage.src = '/brand/logo-mark.png';
+    avatarImage.alt = '';
+    avatar.appendChild(avatarImage);
     div.appendChild(avatar);
     if (text) {
       const content = document.createElement('div');
