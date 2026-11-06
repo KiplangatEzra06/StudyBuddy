@@ -16,17 +16,7 @@ const { ipKeyGenerator } = require('express-rate-limit');
 const helmet = require('helmet');
 const connectPgSimple = require('connect-pg-simple');
 const path = require('path');
-const { callOllama } = require('../services/ollama');
-const prompts = require('../config/prompts');
-const { pool, query: dbQuery, transaction: dbTransaction } = require('../../db/pool');
-const { calculateSm2, qualityForScore } = require('../services/sm2');
-const {
-  callOllamaJson, getDocumentMessages, getReferenceLabel, malformedJsonError, modelJsonError,
-  parseJsonText, parseNotesResponse, sendAiError, validateDocument, validateReferences
-} = require('../services/ai-content');
-const {
-  CARD_SELECT, findOrCreateDeck, normalizeCardText, normalizeDeckName, validateCardInput
-} = require('../services/cards');
+const { pool, query: dbQuery } = require('../../db/pool');
 const { databaseFailure } = require('../services/database-errors');
 const { ownerIdForUsername } = require('../services/owner-id');
 const { requireAuth, requireJsonCsrf } = require('../middleware/request');
@@ -132,16 +122,10 @@ app.use('/api/generate-flashcards', aiLimiter);
 app.use('/api/generate-quiz', aiLimiter);
 app.use('/api/review/grade', aiLimiter);
 
-const routeContext = {
-  callOllama, prompts, validateReferences, getReferenceLabel, sendAiError, callOllamaJson,
-  modelJsonError, normalizeCardText, validateDocument, parseNotesResponse, getDocumentMessages,
-  parseJsonText, malformedJsonError, dbQuery, dbTransaction, databaseFailure, normalizeDeckName,
-  validateCardInput, findOrCreateDeck, CARD_SELECT, calculateSm2, qualityForScore
-};
 app.use('/api/assignments', createAssignmentBriefRouter({ dbQuery, databaseFailure, ownerIdForUsername }));
-app.use(createAiRouter(routeContext));
-app.use(createCardsRouter(routeContext));
-app.use(createReviewRouter(routeContext));
+app.use(createAiRouter());
+app.use(createCardsRouter());
+app.use(createReviewRouter());
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });

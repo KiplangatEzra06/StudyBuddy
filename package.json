@@ -8,7 +8,7 @@
     "dev": "nodemon server.js",
     "migrate": "node db/migrate.js",
     "hash-password": "node scripts/hash-password.js",
-    "test": "node --test test/sm2.test.js test/auth.test.js test/routes.test.js test/services.test.js test/calendar-data.test.mjs test/backup-data.test.mjs"
+    "test": "node --test test/sm2.test.js test/auth.test.js test/routes.test.js test/services.test.js test/calendar-data.test.mjs test/backup-data.test.mjs test/db.routes.test.js"
   },
   "keywords": [
     "study",

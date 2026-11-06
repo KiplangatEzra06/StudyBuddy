@@ -22,11 +22,11 @@ The runtime remains the coordinator for shared state, DOM rendering, and cross-f
 ## Backend
 
 - Root `server.js` remains the `npm start` and test-compatible entrypoint.
-- `backend/app/index.js` builds the Express application, configures sessions and global middleware, composes API routers, and serves health and static routes.
+- `backend/app/index.js` builds the Express application, configures sessions and global middleware, mounts the route modules, and serves health and static routes. It does not build a shared route context.
 - `backend/routes/auth.js` owns login, logout, and session-status endpoints.
-- `backend/routes/ai.js` owns tutor, generation, and document-powered AI endpoints.
-- `backend/routes/cards.js` owns deck and flashcard CRUD and import endpoints.
-- `backend/routes/review.js` owns flashcard review and topic-statistics endpoints.
+- `backend/routes/ai.js`, `backend/routes/cards.js`, and `backend/routes/review.js` only map a method and path to a controller function.
+- `backend/controllers/ai.js`, `backend/controllers/cards.js`, and `backend/controllers/review.js` parse and validate input, call services or repositories, and send the response. Each controller requires the services, repositories, prompts, and database helpers it needs.
+- `backend/repositories/` holds the deck, card, and review SQL. Repository functions take the shared `query` or `transaction` helper and return the rows the controllers send.
 - `backend/middleware/request.js` owns JSON/CSRF checks and authenticated-session enforcement.
 - `backend/services/ai-content.js` owns AI response parsing, prompt input validation, and generation error handling.
 - `backend/services/cards.js` owns card/deck normalization, validation, and shared card query data.
@@ -34,7 +34,7 @@ The runtime remains the coordinator for shared state, DOM rendering, and cross-f
 - `backend/services/ollama.js` and `backend/services/sm2.js` contain Ollama integration and spaced-repetition logic; `backend/config/prompts.js` contains prompt configuration.
 - `db/` stays at the repository root so existing migration tooling and the `npm run migrate` command remain unchanged.
 
-The app composer passes the extracted shared helpers and database dependencies to each route family. No database or API-contract changes were made.
+Requests flow from routes to controllers, then to services and repositories. No database or API-contract changes were made. `POST /api/ai` still streams server-sent events when `stream` is true, including aborting the upstream request when the client disconnects.
 
 ## Feature presentation and data boundaries
 
