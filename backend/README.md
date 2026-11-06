@@ -13,6 +13,14 @@ The root `server.js` remains the Render-compatible entrypoint and test import. I
 - `config/prompts.js` contains AI prompts.
 - The existing PostgreSQL pool and migration tooling remain in `../db/`.
 
+## Repositories
+
+SQL for decks, cards, and reviews lives in `repositories/`. Each function receives the shared `query` or `transaction` helper from `db/pool.js` and returns the same rows the handlers used before. Route handlers still parse requests, choose status codes, and report database failures.
+
+- `repositories/decks.js`: `listDecks`, `createDeck`, `renameDeck`, `deleteDeck`
+- `repositories/cards.js`: `listCards`, `createCard`, `updateCard`, `softDeleteCard`, `purgeCard`, `restoreCard`, `importCards`, `saveCards`
+- `repositories/reviews.js`: `listDueCards`, `countDueCards`, `findCardForGrading`, `saveReviewGrade`, `listDeckStatistics`, `listReviewActivity`
+
 No API or database contracts changed during extraction. The existing PostgreSQL pool remains shared by the route family modules through the app composition context.
 
 ## HTTP API inventory

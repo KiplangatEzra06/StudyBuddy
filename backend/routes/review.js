@@ -1,4 +1,5 @@
 const express = require('express');
+const reviewsRepository = require('../repositories/reviews');
 
 function createReviewRouter(context) {
   const {
@@ -24,24 +25,8 @@ function createReviewRouter(context) {
     const limit = Math.min(20, requestedLimit);
     try {
       const [dueCards, dueCount] = await Promise.all([
-        dbQuery(
-          `SELECT ${CARD_SELECT}
-           FROM cards AS card
-           JOIN decks AS deck ON deck.id = card.deck_id
-           WHERE card.deleted_at IS NULL AND card.due_at <= now()
-             AND ($1::bigint IS NULL OR card.deck_id = $1)
-           ORDER BY card.due_at ASC, card.id ASC
-           LIMIT $2`,
-          [deckId, limit],
-          'due card lookup'
-        ),
-        dbQuery(
-          `SELECT COUNT(*)::int AS total_due FROM cards
-           WHERE deleted_at IS NULL AND due_at <= now()
-             AND ($1::bigint IS NULL OR deck_id = $1)`,
-          [deckId],
-          'due count'
-        )
+        reviewsRepository.listDueCards(dbQuery, CARD_SELECT, deckId, limit),
+        reviewsRepository.countDueCards(dbQuery, deckId)
       ]);
       res.json({ cards: dueCards.rows, total_due: dueCount.rows[0].total_due });
     } catch (error) {
@@ -68,12 +53,7 @@ function createReviewRouter(context) {
     let score = 0;
     let feedback = 'No answer was provided.';
     try {
-      const selected = await dbQuery(
-        'SELECT id::text, front, back FROM cards WHERE id = $1 AND deleted_at IS NULL',
-        [cardId],
-        'card lookup for grading'
-      );
-      const card = selected.rows[0];
+      const card = await reviewsRepository.findCardForGrading(dbQuery, cardId);
       if (!card) return res.status(404).json({ error: 'This flashcard no longer exists.' });
       if (userAnswer) {
         const grade = await callOllamaJson([
@@ -99,31 +79,14 @@ function createReviewRouter(context) {
       }
 
       const quality = qualityForScore(score);
-      const updatedCard = await dbTransaction(async client => {
-        const locked = await client.query(
-          'SELECT id::text, ease_factor, interval_days, repetitions FROM cards WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
-          [cardId]
-        );
-        if (!locked.rows[0]) {
-          const error = new Error('This flashcard no longer exists.');
-          error.status = 404;
-          throw error;
-        }
-        const schedule = calculateSm2(locked.rows[0], quality);
-        const updated = await client.query(
-          `UPDATE cards
-           SET ease_factor = $1, interval_days = $2, repetitions = $3, due_at = $4
-           WHERE id = $5
-           RETURNING due_at`,
-          [schedule.ease_factor, schedule.interval_days, schedule.repetitions, schedule.due_at, cardId]
-        );
-        await client.query(
-          `INSERT INTO reviews (card_id, user_answer, score, quality, response_ms, feedback)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [cardId, userAnswer, score, quality, responseMs, feedback]
-        );
-        return updated.rows[0];
-      }, 'review grade transaction');
+      const updatedCard = await reviewsRepository.saveReviewGrade(dbTransaction, calculateSm2, {
+        cardId,
+        userAnswer,
+        score,
+        quality,
+        responseMs,
+        feedback
+      });
       res.json({
         score,
         feedback,
@@ -140,50 +103,8 @@ function createReviewRouter(context) {
   router.get('/api/stats/topics', async (req, res) => {
     try {
       const [decks, activity] = await Promise.all([
-        dbQuery(
-          `SELECT deck.id::text AS deck_id, deck.name AS deck,
-             COUNT(DISTINCT card.id)::int AS total_cards,
-             COUNT(DISTINCT card.id) FILTER (WHERE card.due_at <= now())::int AS due_count,
-             COUNT(review.id)::int AS review_count,
-             COUNT(review.id) FILTER (
-               WHERE review.reviewed_at >= now() - INTERVAL '30 days'
-             )::int AS recent_review_count,
-             AVG(review.score) FILTER (
-               WHERE review.reviewed_at >= now() - INTERVAL '30 days'
-             ) AS average_score_30d,
-             (COALESCE(AVG(review.score) FILTER (
-               WHERE review.reviewed_at >= now() - INTERVAL '30 days'
-             ), 0) < 60 AND COUNT(review.id) FILTER (
-               WHERE review.reviewed_at >= now() - INTERVAL '30 days'
-             ) >= 5) AS weak
-           FROM decks AS deck
-           LEFT JOIN cards AS card ON card.deck_id = deck.id AND card.deleted_at IS NULL
-           LEFT JOIN reviews AS review ON review.card_id = card.id
-           GROUP BY deck.id, deck.name
-           ORDER BY lower(deck.name)`,
-          [],
-          'deck statistics'
-        ),
-        dbQuery(
-          `WITH days AS (
-             SELECT generate_series(
-               current_date - INTERVAL '13 days',
-               current_date,
-               INTERVAL '1 day'
-             )::date AS day
-           )
-           SELECT days.day::text AS day, COUNT(reviews.id)::int AS reviews
-           FROM days
-           LEFT JOIN reviews
-             ON reviews.reviewed_at >= days.day
-            AND reviews.reviewed_at < days.day + INTERVAL '1 day'
-           LEFT JOIN cards AS card ON card.id = reviews.card_id
-           WHERE card.deleted_at IS NULL OR card.id IS NULL
-           GROUP BY days.day
-           ORDER BY days.day`,
-          [],
-          'review activity statistics'
-        )
+        reviewsRepository.listDeckStatistics(dbQuery),
+        reviewsRepository.listReviewActivity(dbQuery)
       ]);
       res.json({ decks: decks.rows, topics: decks.rows, activity: activity.rows });
     } catch (error) {
