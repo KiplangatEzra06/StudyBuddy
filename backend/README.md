@@ -4,9 +4,9 @@ The root `server.js` remains the Render-compatible entrypoint and test import. I
 
 ## Runtime modules
 
-- `app/index.js` composes Express middleware, route families, and static serving.
+- `app/index.js` composes Express middleware, mounts route modules, and serves health and static files. It does not pass a shared route context.
 - `routes/auth.js` owns login, logout, and session-status routes.
-- `routes/ai.js`, `routes/cards.js`, and `routes/review.js` own the AI, deck/card, and review API families.
+- `routes/ai.js`, `routes/cards.js`, and `routes/review.js` map each method and path to a controller. Request parsing, service and repository calls, and responses live in `controllers/ai.js`, `controllers/cards.js`, and `controllers/review.js`.
 - `middleware/request.js` owns JSON/CSRF validation and authenticated-session enforcement.
 - `services/ai-content.js`, `services/cards.js`, and `services/database-errors.js` own shared route-family validation, parsing, normalization, and error responses.
 - `services/ollama.js` and `services/sm2.js` contain the AI integration and spaced-repetition logic.
@@ -15,13 +15,13 @@ The root `server.js` remains the Render-compatible entrypoint and test import. I
 
 ## Repositories
 
-SQL for decks, cards, and reviews lives in `repositories/`. Each function receives the shared `query` or `transaction` helper from `db/pool.js` and returns the same rows the handlers used before. Route handlers still parse requests, choose status codes, and report database failures.
+SQL for decks, cards, and reviews lives in `repositories/`. Controllers require `query` and `transaction` from `db/pool.js` and pass them into these functions. The functions return the same rows the handlers used before.
 
 - `repositories/decks.js`: `listDecks`, `createDeck`, `renameDeck`, `deleteDeck`
 - `repositories/cards.js`: `listCards`, `createCard`, `updateCard`, `softDeleteCard`, `purgeCard`, `restoreCard`, `importCards`, `saveCards`
 - `repositories/reviews.js`: `listDueCards`, `countDueCards`, `findCardForGrading`, `saveReviewGrade`, `listDeckStatistics`, `listReviewActivity`
 
-No API or database contracts changed during extraction. The existing PostgreSQL pool remains shared by the route family modules through the app composition context.
+No API or database contracts changed during extraction. Controllers share the PostgreSQL pool by requiring `db/pool.js` directly.
 
 ## HTTP API inventory
 
