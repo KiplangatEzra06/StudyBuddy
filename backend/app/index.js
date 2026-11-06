@@ -16,9 +16,12 @@ const { ipKeyGenerator } = require('express-rate-limit');
 const helmet = require('helmet');
 const connectPgSimple = require('connect-pg-simple');
 const path = require('path');
-const { pool } = require('../../db/pool');
+const { pool, query: dbQuery } = require('../../db/pool');
+const { databaseFailure } = require('../services/database-errors');
+const { ownerIdForUsername } = require('../services/owner-id');
 const { requireAuth, requireJsonCsrf } = require('../middleware/request');
 const { createAuthRouter } = require('../routes/auth');
+const createAssignmentBriefRouter = require('../routes/assignment-briefs');
 const createAiRouter = require('../routes/ai');
 const createCardsRouter = require('../routes/cards');
 const createReviewRouter = require('../routes/review');
@@ -40,12 +43,7 @@ if (process.env.ADMIN_PASSWORD_HASH
 const app = express();
 
 function limiterKey(req) {
-  const forwarded = Array.isArray(req.headers['x-forwarded-for'])
-    ? req.headers['x-forwarded-for'][0]
-    : req.headers['x-forwarded-for'];
-  const candidate = typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : '';
-  const ip = candidate || req.ip || 'unknown';
-  return ipKeyGenerator(ip);
+  return ipKeyGenerator(req.ip || 'unknown');
 }
 
 app.set('trust proxy', 1);
@@ -80,6 +78,7 @@ const loginLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   keyGenerator: limiterKey,
+  skipSuccessfulRequests: true,
   message: { error: 'Too many sign-in attempts. Please wait 15 minutes and try again.' }
 });
 const PgSessionStore = connectPgSimple(session);
@@ -107,8 +106,23 @@ const frontendDirectory = path.join(__dirname, '../../frontend');
 
 app.use('/api', requireJsonCsrf);
 app.use('/api/auth', createAuthRouter({ loginLimiter, isProduction }));
-app.use('/api', aiLimiter, requireAuth);
+const apiRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 300,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: limiterKey,
+  message: { error: 'Too many requests. Please try again in a minute.' }
+});
+app.use('/api', apiRateLimiter, requireAuth);
+app.use('/api/ai', aiLimiter);
+app.use('/api/cards/generate', aiLimiter);
+app.use('/api/generate-notes', aiLimiter);
+app.use('/api/generate-flashcards', aiLimiter);
+app.use('/api/generate-quiz', aiLimiter);
+app.use('/api/review/grade', aiLimiter);
 
+app.use('/api/assignments', createAssignmentBriefRouter({ dbQuery, databaseFailure, ownerIdForUsername }));
 app.use(createAiRouter());
 app.use(createCardsRouter());
 app.use(createReviewRouter());
@@ -145,5 +159,17 @@ app.use(express.static(publicDirectory, {
     }
   }
 }));
+
+app.use((error, req, res, next) => {
+  if (error && error.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: 'Malformed JSON request body.' });
+  }
+  if (res.headersSent) {
+    return next(error);
+  }
+  const status = Number.isInteger(error?.status) && error.status >= 400 ? error.status : 500;
+  console.error('Unhandled server error:', error);
+  return res.status(status).json({ error: 'Something went wrong on the server.' });
+});
 
 module.exports = app;
