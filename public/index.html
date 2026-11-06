@@ -345,9 +345,41 @@
                   </div>
                   <div class="row dialog-actions">
                     <button class="btn btn-primary" id="save-assignment-btn" type="submit">Save assignment</button>
+                    <button class="btn assignment-brief-action" id="assignment-open-brief-btn" type="button">Upload brief</button>
                     <button class="btn" id="cancel-assignment-dialog" type="button">Cancel</button>
                   </div>
                 </form>
+              </dialog>
+              <dialog class="editor-dialog assignment-brief-dialog" id="assignment-brief-dialog" aria-labelledby="assignment-brief-title">
+                <div class="dialog-header">
+                  <h2 id="assignment-brief-title">Upload assignment brief</h2>
+                  <button class="icon-btn dialog-close" id="close-assignment-brief-dialog" type="button" aria-label="Close dialog">×</button>
+                </div>
+                <p class="hint">Brief content is sent to Ollama Cloud when saved for this assignment.</p>
+                <div class="assignment-brief-source" role="group" aria-label="Brief source">
+                  <label><input type="radio" name="assignment-brief-source" value="file" checked> Upload a file</label>
+                  <label><input type="radio" name="assignment-brief-source" value="paste"> Paste text instead</label>
+                </div>
+                <section id="assignment-brief-file-source">
+                  <div class="assignment-brief-dropzone" id="assignment-brief-dropzone">
+                    <p>Drop a brief here, or choose a file.</p>
+                    <button class="btn" id="assignment-brief-choose-file" type="button">Choose file</button>
+                    <input id="assignment-brief-file" type="file" accept=".pdf,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png,image/gif,image/webp" hidden>
+                    <span class="hint hidden" id="assignment-brief-file-name"></span>
+                  </div>
+                  <p class="hint">PDF, DOCX, TXT, JPG, PNG, GIF, or WEBP; maximum 10 MB. Scanned PDFs and images need pasted text because OCR is not available.</p>
+                </section>
+                <section id="assignment-brief-paste-source" class="hidden">
+                  <label for="assignment-brief-text">Brief text</label>
+                  <textarea id="assignment-brief-text" rows="9" maxlength="2000000" placeholder="Paste the assignment brief text here"></textarea>
+                </section>
+                <progress id="assignment-brief-progress" class="assignment-brief-progress hidden" max="100" value="0" aria-label="Brief upload progress"></progress>
+                <p class="status" id="assignment-brief-status" role="status" aria-live="polite"></p>
+                <div class="row dialog-actions">
+                  <button class="btn assignment-brief-action" id="assignment-brief-save" type="button">Upload &amp; save brief</button>
+                  <button class="btn btn-danger hidden" id="assignment-brief-remove" type="button">Remove brief</button>
+                  <button class="btn" id="cancel-assignment-brief-dialog" type="button">Cancel</button>
+                </div>
               </dialog>
             </section>
     <section class="panel hidden" id="panel-documents">

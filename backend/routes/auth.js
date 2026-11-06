@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const { ownerIdForUsername } = require('../services/owner-id');
 
 function createAuthRouter({ loginLimiter, isProduction }) {
   const router = express.Router();
@@ -33,6 +34,7 @@ function createAuthRouter({ loginLimiter, isProduction }) {
         return res.status(500).json({ error: 'Could not sign in right now. Please try again.' });
       }
       req.session.authenticated = true;
+      req.session.ownerId = ownerIdForUsername(process.env.ADMIN_USERNAME);
       req.session.save(saveError => {
         if (saveError) {
           console.error('Could not save authenticated session.');

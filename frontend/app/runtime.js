@@ -1373,9 +1373,11 @@ function assignmentMarkup(assignment) {
         <h3>${escapeHtml(assignment.title || 'Untitled assignment')}</h3>
         <time datetime="${new Date(dueAt).toISOString()}">${escapeHtml(formatDueDate(dueAt))}</time>
         ${assignment.details ? `<p>${escapeHtml(assignment.details)}</p>` : ''}
+        ${assignment.briefDocumentId ? '<span class="assignment-brief-label">Brief uploaded</span>' : ''}
         ${Number.isFinite(assignment.reminderAt) && !assignment.completed ? `<span class="assignment-reminder-note">Reminder: ${escapeHtml(formatDueDate(assignment.reminderAt))}</span>` : ''}
       </div>
       <div class="assignment-actions">
+        <button class="btn btn-sm assignment-brief-action" type="button" data-assignment-brief="${escapeHtml(assignment.id)}">${assignment.briefDocumentId ? 'Replace brief' : 'Upload brief'}</button>
         <button class="btn btn-sm" type="button" data-toggle-assignment="${escapeHtml(assignment.id)}">${assignment.completed ? 'Reopen' : 'Mark complete'}</button>
         <button class="icon-btn" type="button" data-edit-assignment="${escapeHtml(assignment.id)}" aria-label="Edit assignment" title="Edit">edit</button>
         <button class="icon-btn btn-danger" type="button" data-delete-assignment="${escapeHtml(assignment.id)}" aria-label="Delete assignment" title="Delete">x</button>
@@ -1396,6 +1398,9 @@ function renderInlineMarkdown(text) {
 }
 
 function bindAssignmentActions(container) {
+  container.querySelectorAll('[data-assignment-brief]').forEach(button => button.addEventListener('click', () => {
+    openAssignmentBriefDialog(button.dataset.assignmentBrief);
+  }));
   container.querySelectorAll('[data-toggle-assignment]').forEach(button => button.addEventListener('click', () => {
     const assignment = assignments.find(item => item.id === button.dataset.toggleAssignment);
     if (!assignment) return;
@@ -1847,6 +1852,7 @@ function openAssignmentForm(id = null, classId = '', dueAt = null) {
     ? Number(assignment.dueAt)
     : dueAt == null ? NaN : Number(dueAt));
   $('assignment-reminder').value = assignment?.reminderAt == null ? '' : dateTimeInputValue(Number(assignment.reminderAt));
+  $('assignment-open-brief-btn').textContent = assignment?.briefDocumentId ? 'Replace brief' : 'Upload brief';
   renderAssignmentClassOptions(assignment?.classId || classId);
   $('assignment-dialog').showModal();
   $('assignment-title').focus();
@@ -1857,6 +1863,7 @@ function resetAssignmentForm() {
   $('assignment-form').reset();
   $('assignment-dialog-title').textContent = 'Add an assignment';
   $('save-assignment-btn').textContent = 'Save assignment';
+  $('assignment-open-brief-btn').textContent = 'Upload brief';
 }
 
 async function saveAssignment() {
@@ -1878,18 +1885,22 @@ async function saveAssignment() {
     reminderSentAt: null,
     details: $('assignment-details').value.trim()
   };
-  const assignment = assignments.find(item => item.id === editingAssignmentId);
+  let assignment = assignments.find(item => item.id === editingAssignmentId);
   if (assignment) {
     const reminderChanged = assignment.reminderAt !== reminderAt || assignment.dueAt !== dueAt;
     fields.reminderSentAt = reminderChanged ? null : (assignment.reminderSentAt || null);
     Object.assign(assignment, fields, { updatedAt: Date.now() });
   }
-  else assignments.push({ id: uid(), ...fields, completed: false, createdAt: Date.now() });
+  else {
+    assignment = { id: uid(), ...fields, completed: false, createdAt: Date.now() };
+    assignments.push(assignment);
+  }
   $('assignment-dialog').close();
   resetAssignmentForm();
   await idbSet('assignments', assignments);
   renderEverything();
   checkAssignmentReminders();
+  return assignment;
 }
 
 function normalizeExtractedText(text) {

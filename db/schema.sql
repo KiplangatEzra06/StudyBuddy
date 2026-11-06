@@ -95,3 +95,23 @@ CREATE TABLE IF NOT EXISTS "session" (
 );
 
 CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" (expire);
+
+CREATE TABLE IF NOT EXISTS assignment_workspaces (
+  owner_id TEXT NOT NULL,
+  assignment_id TEXT NOT NULL,
+  assignment_data JSONB NOT NULL,
+  brief_document_id TEXT,
+  brief_file_name TEXT,
+  brief_mime_type TEXT,
+  brief_file_size BIGINT,
+  brief_extracted_text TEXT,
+  brief_status TEXT NOT NULL DEFAULT 'ready'
+    CHECK (brief_status IN ('ready', 'needs_text')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (owner_id, assignment_id),
+  UNIQUE (owner_id, brief_document_id)
+);
+
+CREATE INDEX IF NOT EXISTS assignment_workspaces_owner_updated_idx
+  ON assignment_workspaces (owner_id, updated_at DESC);
