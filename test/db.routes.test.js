@@ -18,7 +18,11 @@ const COVERED_ENDPOINTS = [
   'POST /api/cards/save',
   'GET /api/review/next',
   'POST /api/review/grade',
-  'GET /api/stats/topics'
+  'GET /api/stats/topics',
+  'GET /api/assignments/briefs',
+  'PUT /api/assignments/:assignmentId/brief/validate',
+  'PUT /api/assignments/:assignmentId/brief',
+  'DELETE /api/assignments/:assignmentId/brief'
 ];
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -144,6 +148,7 @@ if (!testDatabaseUrl) {
       try {
         if (ready) {
           await query(`DELETE FROM decks WHERE name LIKE 'itest-%'`, [], 'test cleanup');
+          await query(`DELETE FROM assignment_workspaces WHERE assignment_id LIKE 'itest-%'`, [], 'test assignment cleanup');
         }
       } finally {
         console.log(['Covered endpoints:', ...COVERED_ENDPOINTS.map(endpoint => `- ${endpoint}`)].join('\n'));
@@ -623,6 +628,268 @@ if (!testDatabaseUrl) {
           assert.equal(typeof day.reviews, 'number');
         });
         assert.ok(response.body.activity.some(day => day.reviews >= 1));
+      });
+    });
+
+    test.describe('assignment brief database routes', () => {
+      const BRIEF_KEYS = [
+        'assignment_data', 'assignment_id', 'brief_document_id', 'brief_extracted_text',
+        'brief_file_name', 'brief_file_size', 'brief_mime_type', 'brief_status',
+        'created_at', 'updated_at'
+      ];
+
+      function sampleAssignment(assignmentId) {
+        return {
+          id: assignmentId,
+          title: 'Integration brief assignment',
+          classId: 'class-1',
+          dueAt: Date.UTC(2026, 5, 1),
+          details: 'Read the brief and submit answers.',
+          completed: false
+        };
+      }
+
+      async function savePastedBrief(assignmentId = uniqueName('assignment'), overrides = {}) {
+        const documentId = uniqueName('doc');
+        const assignment = sampleAssignment(assignmentId);
+        const payload = {
+          assignment,
+          documentId,
+          extractedText: 'Pasted assignment brief text.',
+          sourceType: 'paste',
+          fileName: 'brief.txt',
+          fileType: 'text/plain',
+          fileSize: 0,
+          ...overrides
+        };
+        const response = await agent
+          .put(`/api/assignments/${assignmentId}/brief`)
+          .set(authHeaders())
+          .send(payload);
+        return { response, assignmentId, documentId, assignment, payload };
+      }
+
+      test.describe('GET /api/assignments/briefs', () => {
+        test('requires an authenticated session', async () => {
+          const response = await request(app).get('/api/assignments/briefs');
+          assertError(response, 401, 'Authentication required.');
+        });
+
+        test('returns saved briefs for the owner', async () => {
+          const { response: saved, assignmentId } = await savePastedBrief();
+          assert.equal(saved.status, 200);
+
+          const response = await agent.get('/api/assignments/briefs').set(authHeaders());
+          assert.equal(response.status, 200);
+          assert.deepEqual(Object.keys(response.body).sort(), ['briefs']);
+          assert.ok(Array.isArray(response.body.briefs));
+          const listed = response.body.briefs.find(item => item.assignment_id === assignmentId);
+          assert.ok(listed);
+          assert.deepEqual(Object.keys(listed).sort(), BRIEF_KEYS);
+          assert.equal(listed.brief_document_id, saved.body.brief.brief_document_id);
+          assert.equal(listed.brief_file_name, 'brief.txt');
+          assert.equal(listed.brief_mime_type, 'text/plain');
+          assert.equal(Number(listed.brief_file_size), 0);
+          assert.equal(listed.brief_extracted_text, 'Pasted assignment brief text.');
+          assert.equal(listed.brief_status, 'ready');
+        });
+      });
+
+      test.describe('PUT /api/assignments/:assignmentId/brief/validate', () => {
+        test('requires an authenticated session', async () => {
+          const response = await request(app)
+            .put('/api/assignments/itest-assignment/brief/validate')
+            .set({
+              'Content-Type': 'application/octet-stream',
+              'X-Requested-With': 'StudyBuddy'
+            })
+            .send(Buffer.from('hello brief'));
+          assertError(response, 401, 'Authentication required.');
+        });
+
+        test('validates a text brief upload and returns file metadata', async () => {
+          const assignmentId = uniqueName('assignment');
+          const documentId = uniqueName('doc');
+          const body = Buffer.from('Validated brief contents.');
+          const response = await agent
+            .put(`/api/assignments/${assignmentId}/brief/validate`)
+            .set(authHeaders())
+            .set('Content-Type', 'application/octet-stream')
+            .set('X-Upload-Filename', encodeURIComponent('notes.txt'))
+            .set('X-Document-ID', documentId)
+            .set('X-Upload-Mime-Type', 'text/plain')
+            .send(body);
+          assert.equal(response.status, 200);
+          assert.deepEqual(response.body, {
+            fileName: 'notes.txt',
+            fileType: 'text/plain',
+            fileSize: body.length
+          });
+        });
+
+        test('rejects unsupported brief file types', async () => {
+          const response = await agent
+            .put(`/api/assignments/${uniqueName('assignment')}/brief/validate`)
+            .set(authHeaders())
+            .set('Content-Type', 'application/octet-stream')
+            .set('X-Upload-Filename', encodeURIComponent('notes.exe'))
+            .set('X-Document-ID', uniqueName('doc'))
+            .send(Buffer.from('not a supported brief'));
+          assertError(response, 400, 'Supported brief files are PDF, DOCX, TXT, JPG, PNG, GIF, and WEBP.');
+        });
+      });
+
+      test.describe('PUT /api/assignments/:assignmentId/brief', () => {
+        test('requires an authenticated session', async () => {
+          const assignmentId = uniqueName('assignment');
+          const response = await request(app)
+            .put(`/api/assignments/${assignmentId}/brief`)
+            .set({
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'StudyBuddy'
+            })
+            .send({
+              assignment: sampleAssignment(assignmentId),
+              documentId: uniqueName('doc'),
+              extractedText: 'text',
+              sourceType: 'paste',
+              fileName: 'brief.txt',
+              fileType: 'text/plain',
+              fileSize: 0
+            });
+          assertError(response, 401, 'Authentication required.');
+        });
+
+        test('saves a pasted brief', async () => {
+          const { response, assignmentId, documentId, assignment } = await savePastedBrief();
+          assert.equal(response.status, 200);
+          assert.deepEqual(Object.keys(response.body).sort(), ['brief']);
+          assert.deepEqual(Object.keys(response.body.brief).sort(), BRIEF_KEYS);
+          assert.equal(response.body.brief.assignment_id, assignmentId);
+          assert.equal(response.body.brief.brief_document_id, documentId);
+          assert.deepEqual(response.body.brief.assignment_data, assignment);
+          assert.equal(response.body.brief.brief_file_name, 'brief.txt');
+          assert.equal(response.body.brief.brief_mime_type, 'text/plain');
+          assert.equal(Number(response.body.brief.brief_file_size), 0);
+          assert.equal(response.body.brief.brief_extracted_text, 'Pasted assignment brief text.');
+          assert.equal(response.body.brief.brief_status, 'ready');
+          assert.equal(typeof response.body.brief.created_at, 'string');
+          assert.equal(typeof response.body.brief.updated_at, 'string');
+        });
+
+        test('rejects invalid assignment details', async () => {
+          const assignmentId = uniqueName('assignment');
+          const response = await agent
+            .put(`/api/assignments/${assignmentId}/brief`)
+            .set(authHeaders())
+            .send({
+              assignment: { ...sampleAssignment(assignmentId), completed: 'no' },
+              documentId: uniqueName('doc'),
+              extractedText: 'text',
+              sourceType: 'paste',
+              fileName: 'brief.txt',
+              fileType: 'text/plain',
+              fileSize: 0
+            });
+          assertError(response, 400, 'Assignment details are invalid.');
+        });
+
+        test('requires a validated upload before saving a file brief', async () => {
+          const assignmentId = uniqueName('assignment');
+          const response = await agent
+            .put(`/api/assignments/${assignmentId}/brief`)
+            .set(authHeaders())
+            .send({
+              assignment: sampleAssignment(assignmentId),
+              documentId: uniqueName('doc'),
+              extractedText: 'file brief text',
+              sourceType: 'file',
+              fileName: 'brief.txt',
+              fileType: 'text/plain',
+              fileSize: 12
+            });
+          assertError(response, 400, 'Validate the selected brief file before saving it.');
+        });
+
+        test('saves a validated file brief', async () => {
+          const assignmentId = uniqueName('assignment');
+          const documentId = uniqueName('doc');
+          const body = Buffer.from('Uploaded brief contents.');
+          const validated = await agent
+            .put(`/api/assignments/${assignmentId}/brief/validate`)
+            .set(authHeaders())
+            .set('Content-Type', 'application/octet-stream')
+            .set('X-Upload-Filename', encodeURIComponent('brief.txt'))
+            .set('X-Document-ID', documentId)
+            .set('X-Upload-Mime-Type', 'text/plain')
+            .send(body);
+          assert.equal(validated.status, 200);
+
+          const response = await agent
+            .put(`/api/assignments/${assignmentId}/brief`)
+            .set(authHeaders())
+            .send({
+              assignment: sampleAssignment(assignmentId),
+              documentId,
+              extractedText: 'Uploaded brief contents.',
+              sourceType: 'file',
+              fileName: 'brief.txt',
+              fileType: 'text/plain',
+              fileSize: body.length
+            });
+          assert.equal(response.status, 200);
+          assert.equal(response.body.brief.brief_document_id, documentId);
+          assert.equal(response.body.brief.brief_file_name, 'brief.txt');
+          assert.equal(response.body.brief.brief_mime_type, 'text/plain');
+          assert.equal(Number(response.body.brief.brief_file_size), body.length);
+          assert.equal(response.body.brief.brief_extracted_text, 'Uploaded brief contents.');
+          assert.equal(response.body.brief.brief_status, 'ready');
+        });
+      });
+
+      test.describe('DELETE /api/assignments/:assignmentId/brief', () => {
+        test('requires an authenticated session', async () => {
+          const response = await request(app)
+            .delete('/api/assignments/itest-assignment/brief')
+            .set({
+              'Content-Type': 'application/json',
+              'X-Requested-With': 'StudyBuddy'
+            })
+            .send({});
+          assertError(response, 401, 'Authentication required.');
+        });
+
+        test('clears brief fields while keeping the workspace row', async () => {
+          const { response: saved, assignmentId, documentId } = await savePastedBrief();
+          assert.equal(saved.status, 200);
+          assert.equal(saved.body.brief.brief_document_id, documentId);
+
+          const removed = await agent
+            .delete(`/api/assignments/${assignmentId}/brief`)
+            .set(authHeaders())
+            .send({});
+          assert.equal(removed.status, 204);
+
+          const listed = await agent.get('/api/assignments/briefs').set(authHeaders());
+          assert.equal(listed.status, 200);
+          const brief = listed.body.briefs.find(item => item.assignment_id === assignmentId);
+          assert.ok(brief);
+          assert.equal(brief.brief_document_id, null);
+          assert.equal(brief.brief_file_name, null);
+          assert.equal(brief.brief_mime_type, null);
+          assert.equal(brief.brief_file_size, null);
+          assert.equal(brief.brief_extracted_text, null);
+          assert.equal(brief.brief_status, 'ready');
+          assert.deepEqual(brief.assignment_data, saved.body.brief.assignment_data);
+        });
+
+        test('rejects an invalid assignment ID', async () => {
+          const response = await agent
+            .delete('/api/assignments/bad@id/brief')
+            .set(authHeaders())
+            .send({});
+          assertError(response, 400, 'A valid assignment ID is required.');
+        });
       });
     });
   });

@@ -56,6 +56,16 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
   assert.match(backupModule.headers['content-type'], /javascript/);
   assert.match(backupModule.text, /export function validateBackup/);
 
+  const assignmentBriefModule = await request(app).get('/frontend/features/assignment-brief.js');
+  assert.equal(assignmentBriefModule.status, 200);
+  assert.match(assignmentBriefModule.headers['content-type'], /javascript/);
+  assert.match(assignmentBriefModule.text, /export function openAssignmentBriefDialog/);
+
+  const assignmentBriefsApiModule = await request(app).get('/frontend/services/assignment-briefs-api.js');
+  assert.equal(assignmentBriefsApiModule.status, 200);
+  assert.match(assignmentBriefsApiModule.headers['content-type'], /javascript/);
+  assert.match(assignmentBriefsApiModule.text, /export function createAssignmentBriefsApi/);
+
   const [tokens, components, page] = await Promise.all([
     request(app).get('/design-tokens.css'),
     request(app).get('/components.css'),

@@ -48,9 +48,20 @@ async function deleteDeck(query, id) {
   );
 }
 
+async function findOrCreateDeck(client, name) {
+  const result = await client.query(
+    `INSERT INTO decks (name) VALUES ($1)
+     ON CONFLICT (lower(name)) DO UPDATE SET name = decks.name
+     RETURNING id::text, name`,
+    [name]
+  );
+  return result.rows[0];
+}
+
 module.exports = {
   listDecks,
   createDeck,
   renameDeck,
-  deleteDeck
+  deleteDeck,
+  findOrCreateDeck
 };

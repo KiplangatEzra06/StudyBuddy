@@ -6,18 +6,19 @@ The root `server.js` remains the Render-compatible entrypoint and test import. I
 
 - `app/index.js` composes Express middleware, mounts route modules, and serves health and static files. It does not pass a shared route context.
 - `routes/auth.js` owns login, logout, and session-status routes.
-- `routes/ai.js`, `routes/cards.js`, and `routes/review.js` map each method and path to a controller. Request parsing, service and repository calls, and responses live in `controllers/ai.js`, `controllers/cards.js`, and `controllers/review.js`.
+- `routes/ai.js`, `routes/assignment-briefs.js`, `routes/cards.js`, and `routes/review.js` map each method and path to a controller. Request parsing, service and repository calls, and responses live in `controllers/ai.js`, `controllers/assignment-briefs.js`, `controllers/cards.js`, and `controllers/review.js`.
 - `middleware/request.js` owns JSON/CSRF validation and authenticated-session enforcement.
-- `services/ai-content.js`, `services/cards.js`, and `services/database-errors.js` own shared route-family validation, parsing, normalization, and error responses.
+- `services/ai-content.js`, `services/assignment-briefs.js`, `services/cards.js`, and `services/database-errors.js` own shared route-family validation, parsing, normalization, and error responses.
 - `services/ollama.js` and `services/sm2.js` contain the AI integration and spaced-repetition logic.
 - `config/prompts.js` contains AI prompts.
 - The existing PostgreSQL pool and migration tooling remain in `../db/`.
 
 ## Repositories
 
-SQL for decks, cards, and reviews lives in `repositories/`. Controllers require `query` and `transaction` from `db/pool.js` and pass them into these functions. The functions return the same rows the handlers used before.
+SQL for assignment briefs, decks, cards, and reviews lives in `repositories/`. Controllers require `query` and `transaction` from `db/pool.js` and pass them into these functions. The functions return the same rows the handlers used before.
 
-- `repositories/decks.js`: `listDecks`, `createDeck`, `renameDeck`, `deleteDeck`
+- `repositories/assignment-briefs.js`: `listBriefs`, `saveBrief`, `removeBrief`
+- `repositories/decks.js`: `listDecks`, `createDeck`, `renameDeck`, `deleteDeck`, `findOrCreateDeck`
 - `repositories/cards.js`: `listCards`, `createCard`, `updateCard`, `softDeleteCard`, `purgeCard`, `restoreCard`, `importCards`, `saveCards`
 - `repositories/reviews.js`: `listDueCards`, `countDueCards`, `findCardForGrading`, `saveReviewGrade`, `listDeckStatistics`, `listReviewActivity`
 
@@ -47,8 +48,12 @@ All state-changing `/api` requests must use `application/json` and the `X-Reques
 | `GET /api/review/next` | Read due cards and their total count; accepts optional `limit` and `deck_id`. |
 | `POST /api/review/grade` | Grade an answer and persist its review and next spaced-repetition schedule. |
 | `GET /api/stats/topics` | Read deck/topic statistics and 14-day review activity. |
+| `GET /api/assignments/briefs` | List saved assignment briefs for the signed-in owner. |
+| `PUT /api/assignments/:assignmentId/brief/validate` | Validate a binary brief upload before saving. |
+| `PUT /api/assignments/:assignmentId/brief` | Save or replace an assignment brief (paste or validated file). |
+| `DELETE /api/assignments/:assignmentId/brief` | Clear brief fields for an assignment workspace. |
 
-AI generation and Tutor routes receive content included in the caller's request and can contact the configured AI provider. Local document, note, course, assignment, quiz, and timer records are not exposed as server CRUD APIs; their persistence is managed in browser IndexedDB.
+AI generation and Tutor routes receive content included in the caller's request and can contact the configured AI provider. Local document, note, course, assignment, quiz, and timer records are not exposed as server CRUD APIs; their persistence is managed in browser IndexedDB. Assignment brief metadata and extracted text are server-backed.
 
 ## Validation
 

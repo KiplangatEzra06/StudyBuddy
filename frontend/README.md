@@ -12,14 +12,29 @@
 
 ## Runtime modules
 
-- `app/runtime.js` coordinates shared state, DOM rendering, and cross-feature interactions.
+- `app/runtime.js` coordinates DOM rendering and cross-feature interactions. Shared mutable data lives in `shared/state.js`.
+- `shared/state.js` exports one `state` object holding documents, cards, decks, notes, tutor/chat, timer, calendar, and related UI session fields.
+- `shared/constants.js` holds storage keys and `WEEKDAY_NAMES`.
+- `shared/bus.js` provides a tiny `emit` / `on` / `off` pub/sub for cross-feature calls (no feature-to-feature imports).
+- `shared/dom.js` — `$`, `escapeHtml`, `setStatus`, `createSvgElement`, `selectAccessibleName`.
+- `shared/format.js` — `uid`, date/size/text helpers, `shuffle`, `slugify`, and related pure formatters.
+- `shared/custom-select.js` — custom select enhancement and keyboard handling (`initializeCustomControls`).
+- `shared/fit-paginator.js` — container-fitting list pagination helpers.
+- `shared/undo.js` — deletion confirmations, soft-delete snapshots, and undo toast flow (`initUndo` wires flashcard/render callbacks).
+- `shared/files.js` — `downloadJSON`, `readJSONFile`, `downloadText`.
 - `services/api.js` owns same-origin, cookie-authenticated API requests, timeout handling, and unauthorized-session callbacks.
+- `services/assignment-briefs-api.js` wraps `/api/assignments` brief list/validate/save/remove calls through `createApiClient`, plus shared size/type constants.
 - `services/storage.js` owns the existing IndexedDB `margin-db` / `kv` access functions.
 - `features/calendar-data.js` owns calendar date keys, schedule event derivation, and next-event selection without DOM access.
+- `features/calendar.js` owns calendar DOM rendering, period navigation, day dialog, and agenda wiring; exports `init` and `renderCalendar`. Assignment markup/actions and reminder sync arrive through `init(deps)`.
+- `features/classes.js` owns course list/forms and the classes/assignments panel toggle; exports `init`, `renderClasses`, and `formatMeetingDays`. Mutations emit `classes:changed`.
+- `features/assignments.js` owns assignment list/forms, markup/actions, and browser reminder controls (including the 30s check interval); exports `init`, list/form helpers, and reminder helpers. Mutations emit `assignments:changed`.
+- `features/assignment-brief.js` owns the assignment brief dialog (file/paste upload, validate-then-save, remove) and hydrates `briefDocumentId` from the server on load; mutations emit `assignment-brief:changed`.
 - `features/backup-data.js` owns backup schema validation and ID-preserving collection merges.
 - `features/tutor-markdown.js` renders sanitized Tutor Markdown, scrollable tables, code blocks, and source citations without changing stored conversation text.
+- `features/timer.js` owns the focus timer UI, tick loop, sound/notification preferences, and session logging; exports `init` and `renderTimer`. Logged sessions notify other features via `bus.emit('timer:session-logged')`.
 
-Express serves this directory at `/frontend`. There is no frontend build step, and the page continues to use the same-origin API and existing local data. Calendar event derivation and backup validation/merging are separate feature modules; their DOM, storage, and interaction flows remain coordinated by the runtime.
+Express serves this directory at `/frontend`. There is no frontend build step, and the page continues to use the same-origin API and existing local data. Calendar event derivation stays in `calendar-data.js`; calendar/classes/assignments DOM flows live in their feature modules and re-render peers through the shared bus. Backup validation/merging remains a separate feature module coordinated by the runtime.
 
 ## Browser data and feature boundaries
 
