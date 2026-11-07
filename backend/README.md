@@ -7,12 +7,12 @@ The Node.js/Express backend serves the StudyBuddy browser app and provides its a
 Most API requests follow **routes → controllers → services and repositories**:
 
 - `routes/` maps API paths to controller functions.
-- `controllers/` validates inputs, coordinates services and repositories, and sends responses.
+- `controllers/` validates inputs, coordinates services and repositories, and sends responses. Assignment-brief request handling lives here.
 - `services/` contains shared AI parsing and validation, card normalization, assignment-brief validation, database error handling, owner IDs, Ollama integration, and SM-2 scheduling.
-- `repositories/` contains SQL-backed operations for decks, cards, and reviews.
+- `repositories/` contains SQL-backed operations for assignment briefs, decks, cards, and reviews.
 - `middleware/request.js` enforces authentication and JSON/CSRF requirements.
 
-Authentication routes handle session login, logout, and status directly. The assignment-brief router owns its request flow and uses the assignment-brief service for upload and extracted-text validation. The app wiring and remaining exceptions are described in [the architecture overview](../docs/architecture.md).
+Authentication routes handle session login, logout, and status directly. The assignment-brief router maps paths to its controller, which uses the assignment-brief repository for persistence and the assignment-brief service for upload and extracted-text validation. The app wiring and remaining exceptions are described in [the architecture overview](../docs/architecture.md).
 
 ## Supporting modules
 

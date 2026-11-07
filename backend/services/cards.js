@@ -1,3 +1,5 @@
+const decksRepository = require('../repositories/decks');
+
 function normalizeCardText(value) {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 }
@@ -21,13 +23,7 @@ function cardMetadata(input = {}) {
 }
 
 async function findOrCreateDeck(client, name) {
-  const result = await client.query(
-    `INSERT INTO decks (name) VALUES ($1)
-     ON CONFLICT (lower(name)) DO UPDATE SET name = decks.name
-     RETURNING id::text, name`,
-    [name]
-  );
-  return result.rows[0];
+  return decksRepository.findOrCreateDeck(client, name);
 }
 
 const CARD_SELECT = `card.id::text, card.deck_id::text, deck.name AS topic,
