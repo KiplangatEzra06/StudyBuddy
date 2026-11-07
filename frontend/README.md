@@ -30,6 +30,8 @@
 - `features/classes.js` owns course list/forms and the classes/assignments panel toggle; exports `init`, `renderClasses`, and `formatMeetingDays`. Mutations emit `classes:changed`.
 - `features/assignments.js` owns assignment list/forms, markup/actions, and browser reminder controls (including the 30s check interval); exports `init`, list/form helpers, and reminder helpers. Mutations emit `assignments:changed`.
 - `features/assignment-brief.js` owns the assignment brief dialog (file/paste upload, validate-then-save, remove) and hydrates `briefDocumentId` from the server on load; mutations emit `assignment-brief:changed`.
+- `features/documents.js` owns document upload/parsing, library list, reader paging, taxonomy datalists, and document source selects; mutations emit `documents:changed` so tutor/notes/quiz/flashcard source dropdowns refresh.
+- `features/quiz.js` owns quiz generation, answering, grading into `quizResults`, and mistake review; flashcard creation from mistakes goes through `bus.emit('flashcards:create-from-mistakes', ...)`.
 - `features/backup-data.js` owns backup schema validation and ID-preserving collection merges.
 - `features/tutor-markdown.js` renders sanitized Tutor Markdown, scrollable tables, code blocks, and source citations without changing stored conversation text.
 - `features/timer.js` owns the focus timer UI, tick loop, sound/notification preferences, and session logging; exports `init` and `renderTimer`. Logged sessions notify other features via `bus.emit('timer:session-logged')`.

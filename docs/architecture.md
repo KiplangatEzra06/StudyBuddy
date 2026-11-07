@@ -22,6 +22,8 @@ Stage B separates the application entrypoints and infrastructure responsibilitie
 - `frontend/features/classes.js` owns course cards/forms and the classes↔assignments panel toggle; it emits `classes:changed` after saves.
 - `frontend/features/assignments.js` owns assignment markup/list/forms and reminder badge/controls/interval; it emits `assignments:changed` after saves and completion toggles.
 - `frontend/features/assignment-brief.js` owns assignment brief upload/replace/remove UI and server hydration of brief metadata onto local assignments; it emits `assignment-brief:changed`.
+- `frontend/features/documents.js` owns document upload/extraction, library and reader UI, and course/unit taxonomy fills; it emits `documents:changed` after uploads so dependent source dropdowns refresh.
+- `frontend/features/quiz.js` owns document/note quiz generation, grading, and mistake review UI; results stay in IndexedDB `quizResults`, and mistake-to-flashcard requests use `flashcards:create-from-mistakes` on the shared bus.
 - `frontend/features/backup-data.js` owns backup schema validation and ID-preserving collection merges; browser storage and import/export interactions remain in the runtime.
 - `frontend/features/tutor-markdown.js` owns safe Tutor Markdown rendering, including streamable code/table markup and source citation chips; it does not modify conversation history.
 - `frontend/features/timer.js` owns the focus timer ring, controls, sound/notification settings, and writing completed sessions to `state.timerSessions`; it emits `timer:session-logged` on the shared bus instead of calling progress code directly.

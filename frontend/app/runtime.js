@@ -34,12 +34,23 @@ import {
   validateBackup
 } from '../features/backup-data.js';
 import { renderTutorMarkdown } from '../features/tutor-markdown.js';
+import {
+  init as initNotes,
+  renderNotes,
+  noteNotebookKey,
+  persistNotesReaderPosition,
+  cleanupStoredNotes
+} from '../features/notes.js';
 import { state } from '../shared/state.js';
 import {
+  bindMarkdownCodeButtons,
+  cleanNoteBody,
+  init as initMarkdown,
+  normalizeTutorReply,
+  renderMathInElementSafe
+} from '../shared/markdown.js';
+import {
   TUTOR_MATERIAL_KEY,
-  NOTE_CLEANUP_KEY,
-  NOTES_NOTEBOOK_KEY,
-  NOTES_SELECTED_NOTE_KEY,
   FLASHCARD_IMPORT_DONE_KEY,
   FLASHCARD_VIEW_KEY,
   THEME_KEY,
@@ -52,11 +63,9 @@ import {
   truncateText,
   pluralizeCount,
   formatStudyDuration,
-  safeFileName,
   normalizeAnswer,
   courseUnitKey,
-  shuffle,
-  slugify
+  shuffle
 } from '../shared/format.js';
 import {
   syncCustomSelect,
@@ -65,8 +74,7 @@ import {
 import {
   paginateToFit,
   refreshFitPaginators,
-  showFitItem,
-  releaseFitPaginator
+  showFitItem
 } from '../shared/fit-paginator.js';
 import {
   initUndo,
@@ -77,20 +85,24 @@ import {
   undoDelete,
   confirmBulkDeletion
 } from '../shared/undo.js';
-import { downloadJSON, readJSONFile, downloadText } from '../shared/files.js';
+import { downloadJSON } from '../shared/files.js';
 import { on } from '../shared/bus.js';
 import { init as initTimer, renderTimer } from '../features/timer.js';
+import {
+  init as initDocuments,
+  renderDocuments,
+  renderTaxonomy,
+  previewDocument
+} from '../features/documents.js';
+import {
+  init as initQuiz
+} from '../features/quiz.js';
 import { createAssignmentBriefsApi } from '../services/assignment-briefs-api.js';
 
 
 const apiFetch = createApiClient({
   onUnauthorized: () => showLoginScreen('Session expired, please sign in again')
 });
-
-function changeDocumentPage(index) {
-  state.documentPageIndex = Math.max(0, Math.min(Number(index) || 0, state.documentTextPages.length - 1));
-  renderDocumentPage();
-}
 
 window.addEventListener('resize', () => {
   refreshFitPaginators();
@@ -718,336 +730,6 @@ function renderInlineMarkdown(text) {
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
-}
-
-function normalizeExtractedText(text) {
-  return String(text || '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/[\uF0B7\u2022\u25AA\u25CF\u25E6]/g, '•')
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uE000-\uF8FF\uFFFD]/g, '')
-    .split('\n')
-    .map(line => line.replace(/[ \t]+/g, ' ').trim())
-    .join('\n')
-    .replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, '\n\n')
-    .trim();
-}
-
-function extractPdfPageText(items) {
-  const lines = [];
-  items.filter(item => typeof item.str === 'string' && item.str.trim()).forEach(item => {
-    const transform = item.transform || [];
-    const x = Number(transform[4]) || 0;
-    const y = Number(transform[5]) || 0;
-    const fontSize = Math.abs(Number(transform[3])) || 10;
-    let line = lines.find(candidate => Math.abs(candidate.y - y) <= Math.max(2, fontSize * 0.22));
-    if (!line) {
-      line = { y, fontSize, items: [] };
-      lines.push(line);
-    }
-    line.items.push({ x, width: Number(item.width) || 0, text: item.str });
-  });
-
-  lines.sort((a, b) => b.y - a.y);
-  return lines.map((line, index) => {
-    line.items.sort((a, b) => a.x - b.x);
-    let text = '';
-    let previousEnd = null;
-    line.items.forEach(item => {
-      const gap = previousEnd === null ? 0 : item.x - previousEnd;
-      if (text && gap > 1.25) text += ' ';
-      text += item.text;
-      previousEnd = item.x + item.width;
-    });
-    const next = lines[index + 1];
-    const blankLine = next && line.y - next.y > Math.max(line.fontSize, next.fontSize) * 1.65;
-    return `${text.trim()}${blankLine ? '\n' : ''}`;
-  }).join('\n');
-}
-
-async function parseDocumentFile(file) {
-  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-    if (!window.pdfjsLib) throw new Error('PDF parser did not load. Check your connection and try again.');
-    const buffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-    const chunks = [];
-    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
-      const page = await pdf.getPage(pageNo);
-      const content = await page.getTextContent();
-      chunks.push(extractPdfPageText(content.items));
-    }
-    const originalText = chunks.join('\n\n').trim();
-    return { originalText, extractedText: normalizeExtractedText(originalText) };
-  }
-  if (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')) {
-    const originalText = await file.text();
-    return { originalText, extractedText: normalizeExtractedText(originalText) };
-  }
-  throw new Error('Only PDF and TXT files are supported in v1.');
-}
-
-async function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
-
-function dataUrlToBlob(dataUrl) {
-  const [meta, body] = dataUrl.split(',');
-  const mime = (meta.match(/data:(.*?);base64/) || [, 'application/octet-stream'])[1];
-  const bin = atob(body);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return new Blob([arr], { type: mime });
-}
-
-async function addDocument() {
-  const file = $('doc-file').files[0];
-  if (!file) return setStatus('doc-status', 'Choose a PDF or TXT file first.');
-  setStatus('doc-status', 'Extracting text...');
-  try {
-    const { originalText, extractedText } = await parseDocumentFile(file);
-    if (!extractedText) throw new Error('No readable text was found.');
-    const now = Date.now();
-    const title = $('doc-title').value.trim() || file.name.replace(/\.[^.]+$/, '');
-    const doc = {
-      id: uid(),
-      title,
-      course: $('doc-course').value.trim(),
-      unit: $('doc-unit').value.trim(),
-      favorite: $('doc-favorite').value === 'yes',
-      fileName: file.name,
-      fileType: file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'text/plain'),
-      fileSize: file.size,
-      fileData: await blobToDataUrl(file),
-      originalExtractedText: originalText,
-      extractedText,
-      uploadedAt: now,
-      lastOpened: null,
-      readingProgress: 0
-    };
-    state.documents.push(doc);
-    $('doc-file').value = '';
-    $('doc-title').value = '';
-    $('document-metadata').classList.add('hidden');
-    $('upload-dropzone').classList.remove('has-file');
-    $('upload-file-name').textContent = '';
-    $('upload-file-name').classList.add('hidden');
-    state.showOriginalDocumentText = false;
-    setStatus('doc-status', 'Document saved.');
-    await idbSet('documents', state.documents);
-    renderEverything();
-    previewDocument(doc.id);
-  } catch (err) {
-    setStatus('doc-status', err.message || 'Could not upload document.');
-  }
-}
-
-function filteredDocuments() {
-  const q = $('doc-search').value.trim().toLowerCase();
-  const filter = $('doc-filter').value;
-  let list = state.documents.filter(doc => {
-    const hay = `${doc.title} ${doc.course} ${doc.unit} ${doc.fileName}`.toLowerCase();
-    return (!q || hay.includes(q)) && (filter !== 'favorites' || doc.favorite);
-  });
-  const sort = $('doc-sort').value;
-  list.sort((a, b) => {
-    if (sort === 'title') return a.title.localeCompare(b.title);
-    if (sort === 'course') return `${a.course}${a.unit}${a.title}`.localeCompare(`${b.course}${b.unit}${b.title}`);
-    return (b.lastOpened || b.uploadedAt) - (a.lastOpened || a.uploadedAt);
-  });
-  return list;
-}
-
-function renderDocuments() {
-  const list = $('doc-list');
-  const empty = $('docs-empty');
-  const docs = filteredDocuments();
-  if (docs.length === 0) { list.innerHTML = ''; empty.classList.remove('hidden'); }
-  else {
-    empty.classList.add('hidden');
-    list.innerHTML = docs.map(doc => `
-      <article class="document-card">
-        <div class="document-card-main">
-          <div class="document-file-icon" aria-hidden="true">${doc.fileType === 'application/pdf' ? 'PDF' : 'TXT'}</div>
-          <div class="document-card-copy">
-          <h4>${escapeHtml(doc.title)}</h4>
-          <p>${escapeHtml(doc.fileName)} - ${formatBytes(doc.fileSize)}</p>
-          <div class="meta-line">
-            <span class="pill">${escapeHtml(doc.course || 'General')}</span>
-            <span class="pill">${escapeHtml(doc.unit || 'General')}</span>
-            ${doc.favorite ? '<span class="pill good">favorite</span>' : ''}
-            <span class="pill">${new Date(doc.uploadedAt).toLocaleDateString()}</span>
-          </div>
-          <div class="document-progress-label"><span>Reading progress</span><strong>${doc.readingProgress || 0}%</strong></div>
-          <div class="progress-line" role="progressbar" aria-valuenow="${doc.readingProgress || 0}" aria-valuemin="0" aria-valuemax="100"><span style="width:${doc.readingProgress || 0}%"></span></div>
-          </div>
-        </div>
-        <div class="row document-card-actions">
-          <button class="btn btn-sm" data-preview-doc="${doc.id}">Preview</button>
-          <button class="btn btn-sm" data-open-raw="${doc.id}">File</button>
-          <button class="icon-btn btn-danger" data-delete-doc="${doc.id}" title="Delete" aria-label="Delete document">x</button>
-        </div>
-      </article>
-    `).join('');
-  }
-  list.querySelectorAll('[data-preview-doc]').forEach(btn => btn.addEventListener('click', () => previewDocument(btn.dataset.previewDoc)));
-  list.querySelectorAll('[data-open-raw]').forEach(btn => btn.addEventListener('click', () => openRawDocument(btn.dataset.openRaw)));
-  list.querySelectorAll('[data-delete-doc]').forEach(btn => btn.addEventListener('click', async () => {
-    const doc = state.documents.find(item => item.id === btn.dataset.deleteDoc);
-    if (!doc) return;
-    const linked = state.cards.filter(card => card.sourceDocumentId === doc.id);
-    const choice = await confirmDeletion({
-      title: `Delete document "${doc.title}"?`,
-      description: 'The extracted text and reading progress for this document will be removed.',
-      affected: linked.length ? `${linked.length} flashcard${linked.length === 1 ? '' : 's'} reference this document. Choose whether to keep or delete them.` : '',
-      choices: linked.length
-        ? [
-          { key: 'document', label: 'Delete document only' },
-          { key: 'all', label: `Delete document and ${linked.length} cards` }
-        ]
-        : [{ key: 'document', label: 'Delete document' }]
-    });
-    if (!choice) return;
-    if (state.currentPreviewDocId === doc.id) state.currentPreviewDocId = null;
-    const changes = [{ collection: 'documents', ids: [doc.id] }];
-    if (choice === 'all') changes.push({ collection: 'cards', ids: linked.map(card => card.id) });
-    await softDeleteRecords(changes, 'Document deleted.');
-  }));
-  paginateToFit(list, { label: 'Document pages', itemHeight: 118 });
-  renderDocumentSelects();
-}
-
-function renderDocumentSelects() {
-  const options = state.documents.length
-    ? state.documents.map(doc => `<option value="${doc.id}">${escapeHtml(doc.title)}</option>`).join('')
-    : '<option value="">No documents</option>';
-  ['active-doc-select', 'flashcard-doc-select', 'quiz-doc-select', 'notes-doc-select'].forEach(id => {
-    const previous = $(id).value;
-    $(id).innerHTML = options;
-    if (state.documents.some(doc => doc.id === previous)) $(id).value = previous;
-  });
-}
-
-function splitDocumentPages(text, container) {
-  const style = getComputedStyle(container);
-  const font = `${style.fontStyle} ${style.fontVariant} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-  const lineHeight = parseFloat(style.lineHeight) || 20;
-  const maxLines = Math.max(4, Math.floor(container.clientHeight / lineHeight));
-  const maxWidth = Math.max(80, container.clientWidth - 4);
-  const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
-  context.font = font;
-  const lines = [];
-  String(text || '').split(/\r?\n/).forEach(paragraph => {
-    if (!paragraph) {
-      lines.push('');
-      return;
-    }
-    let line = '';
-    paragraph.split(/\s+/).forEach(word => {
-      const candidate = line ? `${line} ${word}` : word;
-      if (line && context.measureText(candidate).width > maxWidth) {
-        lines.push(line);
-        line = word;
-      } else {
-        line = candidate;
-      }
-      if (context.measureText(line).width > maxWidth) {
-        let part = '';
-        for (const character of line) {
-          if (part && context.measureText(part + character).width > maxWidth) {
-            lines.push(part);
-            part = character;
-          } else part += character;
-        }
-        line = part;
-      }
-    });
-    if (line) lines.push(line);
-  });
-  const pages = [];
-  for (let index = 0; index < lines.length; index += maxLines) pages.push(lines.slice(index, index + maxLines).join('\n'));
-  return pages.length ? pages : ['No extracted text available.'];
-}
-
-function renderDocumentPage() {
-  const container = $('doc-preview');
-  if (!container) return;
-  state.documentTextPages = splitDocumentPages(container.dataset.fullText || container.textContent, container);
-  state.documentPageIndex = Math.max(0, Math.min(state.documentPageIndex, state.documentTextPages.length - 1));
-  container.textContent = state.documentTextPages[state.documentPageIndex];
-  $('document-page-indicator').textContent = `Page ${state.documentPageIndex + 1} of ${state.documentTextPages.length}`;
-  $('document-page-jump').max = String(state.documentTextPages.length);
-  $('document-page-jump').value = String(state.documentPageIndex + 1);
-  $('document-page-prev').disabled = state.documentPageIndex === 0;
-  $('document-page-next').disabled = state.documentPageIndex >= state.documentTextPages.length - 1;
-  const doc = state.documents.find(item => item.id === state.currentPreviewDocId);
-  if (doc) {
-    doc.readingProgress = Math.round(((state.documentPageIndex + 1) / state.documentTextPages.length) * 100);
-    $('doc-progress').value = String(doc.readingProgress);
-    idbSet('documents', state.documents);
-  }
-}
-
-function previewDocument(id) {
-  const doc = state.documents.find(d => d.id === id);
-  if (!doc) return;
-  state.currentPreviewDocId = id;
-  doc.lastOpened = Date.now();
-  $('active-doc-select').value = id;
-  const originalText = doc.originalExtractedText || doc.extractedText;
-  const hasOriginal = originalText !== doc.extractedText;
-  if (!hasOriginal) state.showOriginalDocumentText = false;
-  $('original-text-toggle').disabled = !hasOriginal;
-  $('original-text-toggle').setAttribute('aria-pressed', String(state.showOriginalDocumentText));
-  $('original-text-toggle').textContent = state.showOriginalDocumentText ? 'View cleaned text' : 'View original text';
-  $('doc-preview').dataset.fullText = String(state.showOriginalDocumentText ? originalText : doc.extractedText).slice(0, 120000) || 'No extracted text available.';
-  state.documentTextPages = splitDocumentPages($('doc-preview').dataset.fullText, $('doc-preview'));
-  state.documentPageIndex = Math.min(state.documentTextPages.length - 1, Math.floor(((doc.readingProgress || 0) / 100) * state.documentTextPages.length));
-  renderDocumentPage();
-  idbSet('documents', state.documents);
-  renderDocuments();
-}
-
-function openRawDocument(id) {
-  const doc = state.documents.find(d => d.id === id);
-  if (!doc || !doc.fileData) return;
-  doc.lastOpened = Date.now();
-  const url = URL.createObjectURL(dataUrlToBlob(doc.fileData));
-  window.open(url, '_blank', 'noopener');
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-  idbSet('documents', state.documents);
-  renderDocuments();
-}
-
-function renderTaxonomy() {
-  const courses = [...new Set([
-    ...state.documents.map(d => d.course),
-    ...state.cards.map(c => c.subject),
-    ...state.notes.map(n => n.tag),
-    ...state.timerSessions.map(s => s.course),
-    ...state.classes.map(item => item.name)
-  ].filter(Boolean))].sort();
-  const units = [...new Set([
-    ...state.documents.map(d => d.unit),
-    ...state.cards.map(c => c.unit),
-    ...state.notes.map(n => n.unit),
-    ...state.timerSessions.map(s => s.unit)
-  ].filter(Boolean))].sort();
-  $('course-list').innerHTML = courses.map(c => `<option value="${escapeHtml(c)}">`).join('');
-  $('subject-list').innerHTML = courses.map(c => `<option value="${escapeHtml(c)}">`).join('');
-  $('unit-list').innerHTML = units.map(u => `<option value="${escapeHtml(u)}">`).join('');
-  const courseOptions = ['<option value="">General course</option>', ...courses.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)].join('');
-  const unitOptions = ['<option value="">General unit</option>', ...units.map(u => `<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`)].join('');
-  const prevCourse = $('timer-course').value;
-  const prevUnit = $('timer-unit').value;
-  $('timer-course').innerHTML = courseOptions;
-  $('timer-unit').innerHTML = unitOptions;
-  if (courses.includes(prevCourse)) $('timer-course').value = prevCourse;
-  if (units.includes(prevUnit)) $('timer-unit').value = prevUnit;
 }
 
 function renderTutorScopeOptions() {
@@ -2242,723 +1924,6 @@ async function markStudyCard(mastered) {
   if (state.studyIndex < state.studyDeck.length) $('flip-card').focus();
 }
 
-function renderNotes() {
-  const query = $('notes-search').value.trim().toLocaleLowerCase();
-  const filtered = sortNotes(state.notes.filter(note => !query || noteMatchesQuery(note, query)));
-  const notebookGrid = $('notes-notebook-grid');
-  const searchResults = $('notes-search-results');
-  const workspace = $('notes-workspace');
-  const readerNav = $('notes-reader-nav');
-  const notebook = filteredNotesForNotebook(state.activeNotebookKey);
-  if (state.activeNotebookKey && !notebook.length) {
-    state.activeNotebookKey = '';
-    sessionStorage.removeItem(NOTES_NOTEBOOK_KEY);
-  }
-
-  if (query) {
-    $('notes-notebooks-view').classList.add('hidden');
-    searchResults.classList.remove('hidden');
-    workspace.classList.add('hidden');
-    readerNav.classList.add('hidden');
-    $('notes-search-empty').classList.toggle('hidden', filtered.length > 0);
-    $('notes-search-grid').innerHTML = filtered.map(note => noteListMarkup(note, true)).join('');
-    bindNoteSelection($('notes-search-grid'), true);
-    return;
-  }
-
-  searchResults.classList.add('hidden');
-  $('notes-search-empty').classList.add('hidden');
-  $('notes-search-grid').replaceChildren();
-  if (!state.activeNotebookKey) {
-    $('notes-notebooks-view').classList.remove('hidden');
-    workspace.classList.add('hidden');
-    readerNav.classList.add('hidden');
-    $('notes-empty').classList.toggle('hidden', state.notes.length > 0);
-    renderNotebookTiles();
-    return;
-  }
-
-  $('notes-notebooks-view').classList.add('hidden');
-  $('notes-empty').classList.add('hidden');
-  workspace.classList.remove('hidden');
-  workspace.classList.remove('mobile-detail-open');
-  readerNav.classList.remove('hidden');
-  if (!notebook.some(note => note.id === state.selectedNoteId)) {
-    state.selectedNoteId = notebook[0]?.id || null;
-    persistNotesReaderPosition();
-  }
-  $('notebook-note-list').innerHTML = notebook.map(note => noteListMarkup(note)).join('');
-  bindNoteSelection($('notebook-note-list'));
-  renderNotebookReaderNav(notebook);
-  renderNoteDetail();
-}
-
-function noteNotebookName(note) {
-  return String(note.tag || '').trim() || 'General';
-}
-
-function noteNotebookKey(note) {
-  return noteNotebookName(note).toLocaleLowerCase();
-}
-
-function noteMatchesQuery(note, query) {
-  return `${note.title} ${note.body} ${note.tag} ${note.unit} ${normalizeNoteTags(note.tags).join(' ')}`
-    .toLocaleLowerCase().includes(query);
-}
-
-function sortNotes(items) {
-  const sort = $('notes-sort').value;
-  return [...items].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
-    || (sort === 'title' ? (a.title || '').localeCompare(b.title || '')
-      : sort === 'course' ? noteNotebookName(a).localeCompare(noteNotebookName(b)) || (a.title || '').localeCompare(b.title || '')
-        : (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)));
-}
-
-function filteredNotesForNotebook(key) {
-  if (!key) return [];
-  return sortNotes(state.notes.filter(note => key === 'pinned'
-    ? Boolean(note.pinned)
-    : noteNotebookKey(note) === key));
-}
-
-function noteEditedDate(note) {
-  return new Date(note.updatedAt || note.createdAt || Date.now()).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-}
-
-function notePlainText(value) {
-  return String(value || '')
-    .replace(/```(?:[\w+-]+)?\s*\n?([\s\S]*?)```/g, '$1 ')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-    .replace(/^\s{0,3}(?:[-*+]|\d+[.)])\s+/gm, '')
-    .replace(/^\s{0,3}>\s?/gm, '')
-    .replace(/(`{1,3}|\*\*?|__?)(.*?)\1/g, '$2')
-    .replace(/~~(.*?)~~/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function noteListMarkup(note, searchResult = false) {
-  const notebookLabel = noteNotebookName(note);
-  const title = escapeHtml(note.title || 'Untitled');
-  const notebook = searchResult || state.activeNotebookKey === 'pinned'
-    ? `<span class="note-card-course">${escapeHtml(notebookLabel)}</span>`
-    : '';
-  const preview = notePlainText(note.body);
-  return `<button class="note-card notebook-note-item ${note.id === state.selectedNoteId ? 'selected' : ''}" type="button" data-select-note="${escapeHtml(note.id)}" aria-pressed="${note.id === state.selectedNoteId}">
-    <span class="note-card-topline">${notebook}<span class="note-item-pin" ${note.pinned ? 'aria-label="Pinned"' : 'aria-hidden="true"'}>${note.pinned ? '★' : ''}</span></span>
-    <strong>${title}</strong>
-    ${preview ? `<span class="note-card-preview">${escapeHtml(preview.slice(0, 150))}${preview.length > 150 ? '…' : ''}</span>` : ''}
-    <span class="note-card-meta">Edited ${escapeHtml(noteEditedDate(note))}</span>
-  </button>`;
-}
-
-function bindNoteSelection(container, fromSearch = false) {
-  container.querySelectorAll('[data-select-note]').forEach(button => button.addEventListener('click', () => {
-    const note = state.notes.find(item => item.id === button.dataset.selectNote);
-    if (!note) return;
-    selectNote(note.id, fromSearch ? noteNotebookKey(note) : null);
-  }));
-}
-
-function renderNotebookTiles() {
-  const groups = new Map();
-  state.notes.forEach(note => {
-    const key = noteNotebookKey(note);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(note);
-  });
-  const notebooks = [...groups.entries()]
-    .sort((a, b) => noteNotebookName(a[1][0]).localeCompare(noteNotebookName(b[1][0])));
-  const tiles = [];
-  const pinnedNotes = state.notes.filter(note => note.pinned);
-  if (pinnedNotes.length) tiles.push(['pinned', 'Pinned', pinnedNotes]);
-  notebooks.forEach(([key, group]) => tiles.push([key, noteNotebookName(group[0]), group]));
-  $('notes-notebook-grid').innerHTML = tiles.map(([key, name, group]) => {
-    const units = [...new Set(group.map(note => String(note.unit || '').trim()).filter(Boolean))];
-    const latest = Math.max(...group.map(note => Number(note.updatedAt || note.createdAt) || 0));
-    const date = latest ? new Date(latest).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'No edit date';
-    const icon = key === 'pinned' ? '★' : '▤';
-    return `<button type="button" class="deck-tile notebook-tile" data-open-notebook="${escapeHtml(key)}">
-      <span class="deck-tile-icon" aria-hidden="true">${icon}</span>
-      <span class="deck-tile-copy"><strong>${escapeHtml(name)}</strong><span>${group.length} ${group.length === 1 ? 'note' : 'notes'}</span><span class="notebook-unit-list">${units.length ? escapeHtml(units.join(' · ')) : 'No units added'}</span></span>
-      <span class="notebook-tile-meta">Edited ${escapeHtml(date)}</span>
-      <span class="deck-tile-open">Open notebook →</span>
-    </button>`;
-  }).join('');
-  $('notes-notebook-grid').querySelectorAll('[data-open-notebook]').forEach(button => button.addEventListener('click', () => {
-    state.activeNotebookKey = button.dataset.openNotebook;
-    const notebook = filteredNotesForNotebook(state.activeNotebookKey);
-    state.selectedNoteId = notebook.find(note => note.id === state.selectedNoteId)?.id || notebook[0]?.id || null;
-    persistNotesReaderPosition();
-    renderNotes();
-  }));
-}
-
-function persistNotesReaderPosition() {
-  if (state.activeNotebookKey) sessionStorage.setItem(NOTES_NOTEBOOK_KEY, state.activeNotebookKey);
-  else sessionStorage.removeItem(NOTES_NOTEBOOK_KEY);
-  if (state.selectedNoteId) sessionStorage.setItem(NOTES_SELECTED_NOTE_KEY, state.selectedNoteId);
-  else sessionStorage.removeItem(NOTES_SELECTED_NOTE_KEY);
-}
-
-function renderNotebookReaderNav(notebook) {
-  const selectedIndex = notebook.findIndex(note => note.id === state.selectedNoteId);
-  const index = selectedIndex < 0 ? 0 : selectedIndex;
-  $('notes-position').textContent = notebook.length ? `Note ${index + 1} of ${notebook.length}` : 'No notes';
-  $('notes-prev-btn').disabled = index <= 0;
-  $('notes-next-btn').disabled = index >= notebook.length - 1;
-  $('notebook-note-select').innerHTML = notebook.map((note, noteIndex) => {
-    const prefix = state.activeNotebookKey === 'pinned' ? `${noteNotebookName(note)} · ` : '';
-    return `<option value="${escapeHtml(note.id)}">${noteIndex + 1}. ${escapeHtml(prefix + (note.title || 'Untitled'))}</option>`;
-  }).join('');
-  $('notebook-note-select').value = state.selectedNoteId || '';
-}
-
-function navigateNotebookNote(direction) {
-  if (state.editingNoteId) return;
-  const notebook = filteredNotesForNotebook(state.activeNotebookKey);
-  const index = notebook.findIndex(note => note.id === state.selectedNoteId);
-  const next = notebook[index + direction];
-  if (next) selectNote(next.id);
-}
-
-function cleanNoteBody(value) {
-  let body = String(value || '')
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\n')
-    .replace(/\\"/g, '"')
-    .replace(/\\t/g, '\t')
-    .replace(/\r\n?/g, '\n');
-  const fenced = body.trim().match(/^```(?:markdown|md|text)?\s*\n([\s\S]*?)\n```\s*$/i);
-  if (fenced) body = fenced[1];
-  return body.trim();
-}
-
-function normalizeNoteTags(value) {
-  const tags = Array.isArray(value) ? value : String(value || '').split(',');
-  return [...new Set(tags
-    .filter(tag => typeof tag === 'string')
-    .map(tag => tag.trim())
-    .filter(Boolean))].slice(0, 20);
-}
-
-function noteHeadings(markdown) {
-  const counts = new Map();
-  return String(markdown || '').split('\n').flatMap(line => {
-    const match = line.match(/^(#{1,6})\s+(.+)$/);
-    if (!match) return [];
-    const slug = slugify(match[2]);
-    const count = counts.get(slug) || 0;
-    counts.set(slug, count + 1);
-    return [{ level: match[1].length, title: match[2].trim(), id: count ? `${slug}-${count + 1}` : slug }];
-  });
-}
-
-
-function renderMarkdown(markdown) {
-  const lines = cleanNoteBody(markdown).split('\n');
-  const blocks = [];
-  let paragraph = [];
-  let list = [];
-  let listType = '';
-  let codeLines = [];
-  let codeLanguage = '';
-  let inCode = false;
-  let tableRows = [];
-  let quoteLines = [];
-  let headingCounts = new Map();
-  const inline = value => {
-    const code = [];
-    let output = escapeHtml(value).replace(/`([^`]+)`/g, (_, content) => {
-      code.push(`<code>${content}</code>`);
-      return `\u0000${code.length - 1}\u0000`;
-    });
-    output = output
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/__(.+?)__/g, '<strong>$1</strong>')
-      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
-      .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>')
-      .replace(/~~(.+?)~~/g, '<del>$1</del>');
-    return output.replace(/\u0000(\d+)\u0000/g, (_, index) => code[Number(index)] || '');
-  };
-  const flushParagraph = () => {
-    if (paragraph.length) {
-      const words = paragraph.join(' ').split(/\s+/);
-      const chunks = [];
-      let chunk = '';
-      words.forEach(word => {
-        if (chunk && chunk.length + word.length + 1 > 520) {
-          chunks.push(chunk);
-          chunk = '';
-        }
-        chunk += `${chunk ? ' ' : ''}${word}`;
-      });
-      if (chunk) chunks.push(chunk);
-      chunks.forEach(text => blocks.push(`<p>${inline(text)}</p>`));
-    }
-    paragraph = [];
-  };
-  const flushList = () => {
-    if (list.length) {
-      const tag = listType === 'ol' ? 'ol' : 'ul';
-      blocks.push(`<${tag}>${list.map(item => `<li>${inline(item)}</li>`).join('')}</${tag}>`);
-    }
-    list = [];
-    listType = '';
-  };
-  const flushQuote = () => {
-    if (quoteLines.length) blocks.push(`<blockquote>${quoteLines.map(line => `<p>${inline(line)}</p>`).join('')}</blockquote>`);
-    quoteLines = [];
-  };
-  const flushTable = () => {
-    if (tableRows.length < 2) {
-      tableRows.forEach(row => blocks.push(`<p>${inline(row)}</p>`));
-      tableRows = [];
-      return;
-    }
-    const cells = row => row.replace(/^\s*\|?|\|?\s*$/g, '').split('|').map(cell => cell.trim());
-    const header = cells(tableRows[0]);
-    const bodyRows = tableRows.slice(1).filter(row => !/^\s*\|?\s*:?-{3,}/.test(row)).map(cells);
-    blocks.push(`<div class="markdown-table-wrap"><table><thead><tr>${header.map(cell => `<th>${inline(cell)}</th>`).join('')}</tr></thead><tbody>${bodyRows.map(row => `<tr>${header.map((_, index) => `<td>${inline(row[index] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
-    tableRows = [];
-  };
-  const flushAll = () => { flushParagraph(); flushList(); flushQuote(); flushTable(); };
-  lines.forEach(line => {
-    const fence = line.trim().match(/^```([a-z0-9_+-]*)\s*$/i);
-    if (fence) {
-      flushAll();
-      if (inCode) {
-        const index = blocks.length;
-        blocks.push(`<section class="markdown-code-block"><header class="markdown-code-header"><span>${escapeHtml(codeLanguage || 'Code')}</span><button type="button" data-copy-code="${index}">Copy code</button></header><pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre></section>`);
-        codeLines = [];
-        codeLanguage = '';
-      } else {
-        codeLanguage = fence[1];
-      }
-      inCode = !inCode;
-      return;
-    }
-    if (inCode) {
-      codeLines.push(line);
-      return;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
-    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
-    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-    if (line.includes('|') && /^\s*\|?.+\|.+/.test(line)) {
-      flushParagraph(); flushList(); flushQuote();
-      tableRows.push(line);
-    } else {
-      flushTable();
-      if (!line.trim()) {
-        flushParagraph(); flushList(); flushQuote();
-      } else if (heading) {
-        flushAll();
-        const level = heading[1].length;
-        const title = heading[2].trim();
-        const slug = slugify(title);
-        const count = headingCounts.get(slug) || 0;
-        headingCounts.set(slug, count + 1);
-        blocks.push(`<h${level} id="${escapeHtml(count ? `${slug}-${count + 1}` : slug)}">${inline(title)}</h${level}>`);
-      } else if (/^\s*>\s?/.test(line)) {
-        flushParagraph(); flushList();
-        quoteLines.push(line.replace(/^\s*>\s?/, '').trim());
-      } else if (bullet || ordered) {
-        flushParagraph(); flushQuote();
-        const nextType = ordered ? 'ol' : 'ul';
-        if (listType && listType !== nextType) flushList();
-        listType = nextType;
-        list.push((bullet || ordered)[1]);
-      } else {
-        flushList(); flushQuote();
-        paragraph.push(line.trim());
-      }
-    }
-  });
-  if (inCode) {
-    const index = blocks.length;
-    blocks.push(`<section class="markdown-code-block"><header class="markdown-code-header"><span>${escapeHtml(codeLanguage || 'Code')}</span><button type="button" data-copy-code="${index}">Copy code</button></header><pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre></section>`);
-  }
-  flushAll();
-  return blocks.join('');
-}
-
-function normalizeTutorReply(value) {
-  return String(value || '')
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\n')
-    .replace(/\\"/g, '"')
-    .replace(/\\t/g, '\t')
-    .replace(/\r\n?/g, '\n')
-    .trim();
-}
-
-function renderMathInElementSafe(container) {
-  if (typeof window.renderMathInElement !== 'function') return;
-  window.renderMathInElement(container, {
-    delimiters: [
-      { left: '$$', right: '$$', display: true },
-      { left: '\\[', right: '\\]', display: true },
-      { left: '\\(', right: '\\)', display: false },
-      { left: '$', right: '$', display: false }
-    ],
-    throwOnError: false,
-    ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
-  });
-}
-
-function bindMarkdownCodeButtons(container, { truncateLongCode = true } = {}) {
-  container.querySelectorAll('[data-copy-code]').forEach(button => button.addEventListener('click', async () => {
-    const codeElement = button.closest('.markdown-code-block').querySelector('code');
-    const code = codeElement.dataset.fullCode ?? codeElement.textContent;
-    try {
-      await navigator.clipboard.writeText(code);
-      button.textContent = 'Copied';
-      button.setAttribute('aria-label', 'Code copied to clipboard');
-    } catch {
-      button.textContent = 'Copy unavailable';
-      button.setAttribute('aria-label', 'Copy unavailable');
-    }
-    clearTimeout(button.copyFeedbackTimeout);
-    button.copyFeedbackTimeout = setTimeout(() => {
-      const block = button.closest('.markdown-code-block');
-      if (!block) return;
-      button.textContent = 'Copy code';
-      const language = block.querySelector('.markdown-code-header span').textContent;
-      button.setAttribute('aria-label', language && language !== 'Code' ? `Copy ${language} code` : 'Copy code');
-    }, 1800);
-  }));
-  container.querySelectorAll('.markdown-code-block').forEach(block => {
-    const code = block.querySelector('code');
-    const fullCode = code.textContent;
-    code.dataset.fullCode = fullCode;
-    const lines = fullCode.split('\n');
-    if (!truncateLongCode || lines.length <= 20 || block.querySelector('[data-expand-code]')) return;
-    code.textContent = lines.slice(0, 20).join('\n');
-    const expand = document.createElement('button');
-    expand.type = 'button';
-    expand.className = 'text-btn';
-    expand.dataset.expandCode = '';
-    expand.textContent = `Show more (${lines.length - 20} lines)`;
-    expand.addEventListener('click', () => openCodeDialog(fullCode));
-    block.appendChild(expand);
-  });
-}
-
-
-function openCodeDialog(code) {
-  const dialog = $('code-dialog');
-  dialog.showModal();
-  const maxCharacters = Math.max(12, Math.floor((dialog.clientWidth - 48) / 8));
-  const visualLines = String(code).split('\n').flatMap(line => {
-    if (!line) return [''];
-    const pieces = [];
-    for (let index = 0; index < line.length; index += maxCharacters) {
-      pieces.push(line.slice(index, index + maxCharacters));
-    }
-    return pieces;
-  });
-  const linesPerPage = Math.max(4, Math.floor((dialog.clientHeight - 130) / 20));
-  state.codeDialogPages = [];
-  for (let index = 0; index < visualLines.length; index += linesPerPage) {
-    state.codeDialogPages.push(visualLines.slice(index, index + linesPerPage).join('\n'));
-  }
-  state.codeDialogPageIndex = 0;
-  renderCodeDialogPage();
-}
-
-function renderCodeDialogPage() {
-  $('code-dialog-content').textContent = state.codeDialogPages[state.codeDialogPageIndex] || '';
-  const controls = $('code-dialog-controls');
-  const pageCount = Math.max(1, state.codeDialogPages.length);
-  controls.innerHTML = `<button type="button" class="btn btn-sm" data-code-prev ${state.codeDialogPageIndex === 0 ? 'disabled' : ''}>Previous</button><span aria-live="polite">Part ${state.codeDialogPageIndex + 1} of ${pageCount}</span><button type="button" class="btn btn-sm" data-code-next ${state.codeDialogPageIndex >= pageCount - 1 ? 'disabled' : ''}>Next</button>`;
-  controls.querySelector('[data-code-prev]').addEventListener('click', () => {
-    state.codeDialogPageIndex--;
-    renderCodeDialogPage();
-  });
-  controls.querySelector('[data-code-next]').addEventListener('click', () => {
-    state.codeDialogPageIndex++;
-    renderCodeDialogPage();
-  });
-}
-
-function renderNoteDetail() {
-  const note = state.notes.find(item => item.id === state.selectedNoteId);
-  const detail = $('note-detail');
-  releaseFitPaginator(detail.querySelector('.markdown-body'));
-  $('note-editor-empty').classList.toggle('hidden', Boolean(note));
-  if (!note) {
-    $('note-editor-empty').querySelector('strong').textContent = state.notes.length ? 'No matching notes' : 'No notes yet';
-    $('note-editor-empty').querySelector('span:last-child').textContent = state.notes.length
-      ? 'Try another search or create a note.'
-      : 'Create a note or generate one from a document.';
-  }
-  detail.classList.toggle('hidden', !note || ! $('note-form').classList.contains('hidden'));
-  if (!note || ! $('note-form').classList.contains('hidden')) return;
-  const headings = noteHeadings(note.body);
-  const date = new Date(note.updatedAt || note.createdAt || Date.now());
-  const toc = headings.length >= 3
-    ? `<details class="note-toc"><summary>On this page</summary><ul>${headings.map(item => `<li class="toc-level-${item.level}"><a href="#${escapeHtml(item.id)}">${escapeHtml(item.title)}</a></li>`).join('')}</ul></details>`
-    : '';
-  detail.innerHTML = `
-    <header class="note-detail-header">
-      <div><h2>${escapeHtml(note.title || 'Untitled note')}</h2>
-      <div class="note-detail-tags"><span class="pill">${escapeHtml(note.tag || 'General')}</span><span class="pill">${escapeHtml(note.unit || 'General')}</span>${normalizeNoteTags(note.tags).map(tag => `<span class="pill">${escapeHtml(tag)}</span>`).join('')}${note.aiGenerated ? '<span class="pill ai">AI generated</span>' : ''}</div>
-        <p class="note-card-meta">Edited ${escapeHtml(date.toLocaleString())}</p>
-      </div>
-      <div class="note-detail-actions">
-        <button class="btn btn-sm" type="button" data-note-edit="${escapeHtml(note.id)}">Edit</button>
-        <button class="btn btn-sm" type="button" data-note-pin="${escapeHtml(note.id)}" aria-pressed="${Boolean(note.pinned)}">${note.pinned ? 'Unpin' : 'Pin'}</button>
-        <button class="btn btn-sm" type="button" data-note-cards="${escapeHtml(note.id)}">Make flashcards</button>
-        <button class="btn btn-sm" type="button" data-note-quiz="${escapeHtml(note.id)}">Quiz me</button>
-        <button class="btn btn-sm" type="button" data-note-tutor="${escapeHtml(note.id)}">Ask tutor</button>
-        <button class="btn btn-sm" type="button" data-note-export="${escapeHtml(note.id)}">Export Markdown</button>
-        <button class="btn btn-sm" type="button" data-note-json="${escapeHtml(note.id)}">Export JSON</button>
-        <button class="icon-btn btn-danger" type="button" data-note-delete="${escapeHtml(note.id)}" aria-label="Delete note" title="Delete">×</button>
-      </div>
-    </header>
-    ${toc}
-    <div class="note-detail-body markdown-body">${renderMarkdown(note.body) || '<p class="hint">This note is empty. Edit it to add content.</p>'}</div>
-  `;
-  bindMarkdownCodeButtons(detail);
-  detail.querySelector('[data-note-edit]').addEventListener('click', () => openNoteForm(note.id));
-  detail.querySelector('[data-note-pin]').addEventListener('click', async () => {
-    note.pinned = !note.pinned;
-    note.updatedAt = Date.now();
-    await idbSet('notes', state.notes);
-    renderNotes();
-  });
-  detail.querySelector('[data-note-cards]').addEventListener('click', () => makeFlashcardsFromNote(note.id));
-  detail.querySelector('[data-note-quiz]').addEventListener('click', () => quizFromNote(note.id));
-  detail.querySelector('[data-note-tutor]').addEventListener('click', () => askTutorAboutNote(note.id));
-  detail.querySelector('[data-note-export]').addEventListener('click', () => exportNoteMarkdown(note));
-  detail.querySelector('[data-note-json]').addEventListener('click', () => downloadJSON(note, `${safeFileName(note.title || 'note')}.json`));
-  detail.querySelector('[data-note-delete]').addEventListener('click', () => deleteNoteWithUndo(note.id));
-}
-
-async function selectNote(id, notebookKey = null) {
-  const note = state.notes.find(item => item.id === id);
-  if (!note) return;
-  const targetNotebookKey = notebookKey || state.activeNotebookKey || noteNotebookKey(note);
-  if (state.editingNoteId && state.editingNoteId !== id) {
-    await saveNote();
-    state.editingNoteId = null;
-  }
-  state.activeNotebookKey = targetNotebookKey;
-  state.selectedNoteId = id;
-  persistNotesReaderPosition();
-  $('note-form').classList.add('hidden');
-  renderNotes();
-}
-
-function renderNotePreview() {
-  if (!state.editingNoteId) return;
-  const note = state.notes.find(item => item.id === state.editingNoteId);
-  if (!note) return;
-  note.title = $('note-title').value.trim();
-  note.tag = $('note-tag').value.trim();
-  note.unit = $('note-unit').value.trim();
-  note.tags = normalizeNoteTags($('note-tags-input').value);
-  note.body = cleanNoteBody($('note-body').value);
-  note.updatedAt = Date.now();
-  if (state.activeNotebookKey !== 'pinned') state.activeNotebookKey = noteNotebookKey(note);
-  $('note-save-status').textContent = 'Unsaved changes';
-  clearTimeout(state.noteAutosaveTimer);
-  state.noteAutosaveTimer = setTimeout(saveNote, 650);
-}
-
-function openNoteForm(id) {
-  let note = state.notes.find(item => item.id === id);
-  if (!note) {
-    const now = Date.now();
-    const defaultTag = state.activeNotebookKey === 'pinned'
-      ? state.notes.find(item => item.id === state.selectedNoteId)?.tag || ''
-      : state.notes.find(item => noteNotebookKey(item) === state.activeNotebookKey)?.tag || '';
-    note = { id: uid(), title: '', tag: defaultTag, unit: '', tags: [], body: '', aiGenerated: false, createdAt: now, updatedAt: now };
-    state.notes.push(note);
-  }
-  state.selectedNoteId = note.id;
-  if (state.activeNotebookKey !== 'pinned') state.activeNotebookKey = noteNotebookKey(note);
-  persistNotesReaderPosition();
-  state.editingNoteId = note.id;
-  $('note-form').classList.remove('hidden');
-  $('note-detail').classList.add('hidden');
-  $('note-title').value = note.title || '';
-  $('note-tag').value = note.tag || '';
-  $('note-unit').value = note.unit || '';
-  $('note-tags-input').value = normalizeNoteTags(note.tags).join(', ');
-  $('note-body').value = cleanNoteBody(note.body);
-  $('note-save-status').textContent = 'Saved';
-  renderNotes();
-  $('note-title').focus();
-}
-
-async function saveNote() {
-  clearTimeout(state.noteAutosaveTimer);
-  if (!state.editingNoteId) return;
-  const note = state.notes.find(item => item.id === state.editingNoteId);
-  if (!note) return;
-  note.title = $('note-title').value.trim();
-  note.tag = $('note-tag').value.trim();
-  note.unit = $('note-unit').value.trim();
-  note.tags = normalizeNoteTags($('note-tags-input').value);
-  note.body = cleanNoteBody($('note-body').value);
-  note.updatedAt = Date.now();
-  if (state.activeNotebookKey !== 'pinned') state.activeNotebookKey = noteNotebookKey(note);
-  persistNotesReaderPosition();
-  await idbSet('notes', state.notes);
-  $('note-save-status').textContent = 'Saved';
-  updateStudyMaterialIndex();
-  renderTaxonomy();
-  renderNoteListOnly();
-}
-
-function renderNoteListOnly() {
-  renderNotes();
-}
-
-function closeNoteForm() {
-  if (state.editingNoteId) saveNote();
-  $('note-form').classList.add('hidden');
-  state.editingNoteId = null;
-  renderNotes();
-}
-
-async function backToNotebooks() {
-  if (state.editingNoteId) {
-    await saveNote();
-    state.editingNoteId = null;
-    $('note-form').classList.add('hidden');
-  }
-  state.activeNotebookKey = '';
-  persistNotesReaderPosition();
-  renderNotes();
-}
-
-
-function exportNoteMarkdown(note) {
-  const content = `# ${note.title || 'Untitled note'}\n\n${note.body || ''}\n`;
-  downloadText(content, `${safeFileName(note.title || 'note')}.md`, 'text/markdown');
-}
-
-
-async function deleteNoteWithUndo(id) {
-  const note = state.notes.find(item => item.id === id);
-  if (!note) return;
-  const confirmed = await confirmDeletion({
-    title: `Delete note "${note.title || 'Untitled note'}"?`,
-    description: 'This will remove the saved note and its formatted content.',
-    affected: 'Flashcards or quiz results created from this note are not changed.'
-  });
-  if (!confirmed) return;
-  state.selectedNoteId = state.notes.filter(item => item.id !== id).sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0]?.id || null;
-  await softDeleteRecords([{ collection: 'notes', ids: [id] }], 'Note deleted.');
-}
-
-async function makeFlashcardsFromNote(id) {
-  const note = state.notes.find(item => item.id === id);
-  if (!note?.body.trim()) return;
-  setStatus('notes-ai-status', 'Generating flashcards from note...');
-  try {
-    const data = await callAI('/api/generate-flashcards', { document: {
-      title: note.title || 'Study note', course: note.tag || 'General',
-      unit: note.unit || 'General', text: truncateText(note.body, 14000)
-    } });
-    const generated = Array.isArray(data.cards) ? data.cards : [];
-    const records = generated.filter(card => card && typeof card.front === 'string' && typeof card.back === 'string')
-      .map(card => ({
-        front: card.front.trim(), back: card.back.trim(),
-        subject: note.tag || '', unit: note.unit || '',
-        format: ['basic', 'definition', 'fill_blank'].includes(card.format) ? card.format : 'basic',
-        aiGenerated: true, sourceNoteId: note.id, sourceNoteTitle: note.title || 'Study note',
-        mastered: false
-      }));
-    await importFlashcardRecords(records);
-    activatePage('cards');
-    setFlashcardsView('cards');
-    setStatus('cards-ai-status', `Added ${records.length} cards from ${note.title || 'your note'}.`);
-  } catch (error) {
-    setStatus('notes-ai-status', error.message || 'Could not generate flashcards.');
-  }
-}
-
-async function quizFromNote(id) {
-  const note = state.notes.find(item => item.id === id);
-  if (!note?.body.trim()) return;
-  setStatus('notes-ai-status', 'Preparing a quiz from note...');
-  try {
-    const data = await callAI('/api/generate-quiz', { document: {
-      id: note.id, title: note.title || 'Study note', course: note.tag || 'General',
-      unit: note.unit || 'General', text: truncateText(note.body, 14000)
-    } });
-    const questions = normalizeGeneratedQuestions(data.questions);
-    if (!questions.length) throw new Error('No complete quiz questions could be made from this note.');
-    renderQuiz({ id: note.id, title: note.title || 'Study note', course: note.tag, unit: note.unit }, questions);
-    activatePage('quiz');
-  } catch (error) {
-    setStatus('notes-ai-status', error.message || 'Could not create a quiz from this note.');
-  }
-}
-
-function askTutorAboutNote(id) {
-  const note = state.notes.find(item => item.id === id);
-  if (!note) return;
-  activatePage('tutor');
-  $('tutor-use-material').checked = true;
-  localStorage.setItem(TUTOR_MATERIAL_KEY, 'true');
-  $('settings-tutor-material').checked = true;
-  $('tutor-study-scope').value = 'all';
-  $('chat-input').value = `Help me understand the main ideas in my note "${note.title || 'Untitled note'}".`;
-  $('chat-input').focus();
-}
-
-async function generateNotesFromDocument() {
-  const doc = state.documents.find(d => d.id === $('notes-doc-select').value);
-  if (!doc) return setStatus('notes-ai-status', 'Upload a document first. (No document selected)');
-
-  setStatus('notes-ai-status', 'Generating notes...');
-  $('generate-notes-btn').disabled = true;
-  try {
-    const data = await callAI('/api/generate-notes', { document: aiDocumentPayload(doc) });
-    const bodyParts = [
-      typeof data.summary === 'string' && data.summary.trim() ? `## Summary\n${cleanNoteBody(data.summary).trim()}` : '',
-      Array.isArray(data.keyConcepts) && data.keyConcepts.some(value => typeof value === 'string' && value.trim())
-        ? `## Key concepts\n${data.keyConcepts.filter(value => typeof value === 'string' && value.trim()).map(value => `- ${cleanNoteBody(value).trim()}`).join('\n')}`
-        : '',
-      typeof data.body === 'string' && data.body.trim() ? `## Detailed notes\n${cleanNoteBody(data.body).trim()}` : ''
-    ].filter(Boolean);
-    if (!bodyParts.length) throw new Error('The AI returned an empty note. Try again with a document that has more study content.');
-    state.notes.push({
-      id: uid(),
-      title: typeof data.title === 'string' && data.title.trim() ? data.title.trim() : `${doc.title} notes`,
-      tag: doc.course,
-      unit: doc.unit,
-      body: cleanNoteBody(bodyParts.join('\n\n')),
-      aiGenerated: true,
-      sourceDocumentId: doc.id,
-      sourceDocumentTitle: doc.title,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    });
-    state.selectedNoteId = state.notes.at(-1).id;
-    await idbSet('notes', state.notes);
-    setStatus('notes-ai-status', 'AI note added.');
-    renderEverything();
-  } catch (err) {
-    setStatus('notes-ai-status', err.message || 'Could not generate notes.');
-  } finally {
-    $('generate-notes-btn').disabled = false;
-  }
-}
 
 function aiDocumentPayload(doc) {
   return {
@@ -2987,242 +1952,6 @@ async function callAI(path, payload) {
   }
   if (typeof data.error === 'string' && data.error) throw new Error(data.error);
   return data;
-}
-
-async function generateQuiz() {
-  const doc = state.documents.find(d => d.id === $('quiz-doc-select').value);
-  if (!doc) return setStatus('quiz-status', 'Upload a document first. (No document selected)');
-
-  setStatus('quiz-status', 'Generating quiz...');
-  $('generate-quiz-btn').disabled = true;
-  try {
-    const data = await callAI('/api/generate-quiz', { document: aiDocumentPayload(doc) });
-    const questions = normalizeGeneratedQuestions(data.questions);
-    renderQuiz(doc, questions);
-    setStatus('quiz-status', questions.length
-      ? `Ready: ${questions.length} questions from ${doc.title}.`
-      : 'The AI returned no complete, auto-gradable questions. Try again with a document that has more study content.');
-  } catch (err) {
-    setStatus('quiz-status', err.message || 'Could not generate quiz.');
-  } finally {
-    $('generate-quiz-btn').disabled = false;
-  }
-}
-function normalizeGeneratedQuestions(items) {
-  if (!Array.isArray(items)) return [];
-  const seen = new Set();
-  return items.reduce((questions, item) => {
-    if (!item || typeof item !== 'object') return questions;
-    const question = typeof item.question === 'string' ? item.question.trim() : '';
-    const correctAnswer = typeof (item.correctAnswer || item.answer) === 'string'
-      ? String(item.correctAnswer || item.answer).trim()
-      : '';
-    const type = ['multiple_choice', 'true_false', 'fill_blank', 'short_answer'].includes(item.type)
-      ? item.type
-      : 'short_answer';
-    const rawOptions = Array.isArray(item.options)
-      ? [...new Set(item.options.filter(option => typeof option === 'string').map(option => option.trim()).filter(Boolean))]
-      : [];
-    if (!question || !correctAnswer) return questions;
-    if (type === 'multiple_choice' && (rawOptions.length < 2 || !rawOptions.some(option => normalizeAnswer(option) === normalizeAnswer(correctAnswer)))) return questions;
-    if (type === 'true_false' && !['true', 'false'].includes(normalizeAnswer(correctAnswer))) return questions;
-    const key = normalizeAnswer(question);
-    if (seen.has(key)) return questions;
-    seen.add(key);
-    const options = type === 'multiple_choice' ? rawOptions : (type === 'true_false' ? ['True', 'False'] : []);
-    questions.push({
-      ...item,
-      type,
-      question,
-      options,
-      correctAnswer: type === 'multiple_choice'
-        ? options.find(option => normalizeAnswer(option) === normalizeAnswer(correctAnswer))
-        : correctAnswer
-    });
-    return questions;
-  }, []);
-}
-function renderQuiz(doc, questions) {
-  if (!questions.length) {
-    state.currentQuiz = null;
-    $('quiz-view-toolbar').classList.add('hidden');
-    $('quiz-area').replaceChildren();
-    $('quiz-empty').textContent = 'The AI returned no complete, auto-gradable questions. Try again with a document that has more study content.';
-    $('quiz-empty').classList.remove('hidden');
-    return;
-  }
-  $('quiz-empty').textContent = 'Choose a document and generate a quiz.';
-  $('quiz-empty').classList.add('hidden');
-  state.currentQuiz = {
-    doc,
-    questions,
-    answers: Array(questions.length).fill(''),
-    index: 0,
-    mode: 'one',
-    graded: false,
-    results: []
-  };
-  $('quiz-view-toolbar').classList.remove('hidden');
-  renderQuizView();
-}
-
-function quizQuestionMarkup(question, index) {
-  const type = question.type || 'multiple_choice';
-  const options = Array.isArray(question.options) ? question.options : (type === 'true_false' ? ['True', 'False'] : []);
-  const currentAnswer = state.currentQuiz.answers[index];
-  const input = options.length ? options.map(option => `
-    <label class="quiz-option ${state.currentQuiz.graded && normalizeAnswer(option) === normalizeAnswer(question.correctAnswer || question.answer) ? 'correct' : ''} ${state.currentQuiz.graded && currentAnswer === option && normalizeAnswer(option) !== normalizeAnswer(question.correctAnswer || question.answer) ? 'wrong' : ''}">
-      <input type="radio" name="quiz-${index}" value="${escapeHtml(option)}" ${currentAnswer === option ? 'checked' : ''} ${state.currentQuiz.graded ? 'disabled' : ''}>
-      <span>${escapeHtml(option)}</span>
-    </label>
-  `).join('') : `<input type="text" data-free-answer="${index}" value="${escapeHtml(currentAnswer)}" placeholder="Your answer" ${state.currentQuiz.graded ? 'disabled' : ''}>`;
-  const result = state.currentQuiz.graded ? state.currentQuiz.results[index] : null;
-  return `
-    <article class="quiz-question" data-q-index="${index}">
-      <div class="meta-line"><span class="pill">${escapeHtml(type.replace(/_/g, ' '))}</span><span class="question-count">Question ${index + 1}</span></div>
-      <strong>${escapeHtml(question.question)}</strong>
-      <div class="quiz-answer-options">${input}</div>
-      ${result ? `<div class="quiz-feedback ${result.correct ? 'is-correct' : 'is-wrong'}" role="status"><strong>${result.correct ? 'Correct' : 'Not quite'}</strong>${result.correct ? '' : `<span>Answer: ${escapeHtml(question.correctAnswer || question.answer || 'Not provided')}</span>`}${question.explanation ? `<span>${escapeHtml(question.explanation)}</span>` : ''}</div>` : ''}
-    </article>
-  `;
-}
-
-function collectQuizAnswers() {
-  state.currentQuiz.questions.forEach((question, index) => {
-    const checked = document.querySelector(`input[name="quiz-${index}"]:checked`);
-    const free = document.querySelector(`[data-free-answer="${index}"]`);
-    if (checked) state.currentQuiz.answers[index] = checked.value;
-    else if (free) state.currentQuiz.answers[index] = free.value.trim();
-  });
-}
-
-function renderQuizView() {
-  if (!state.currentQuiz) return;
-  const { questions, index, mode } = state.currentQuiz;
-  const area = $('quiz-area');
-  $('quiz-mode-one').classList.toggle('active', mode === 'one');
-  $('quiz-mode-one').setAttribute('aria-pressed', String(mode === 'one'));
-  $('quiz-mode-all').classList.toggle('active', mode === 'all');
-  $('quiz-mode-all').setAttribute('aria-pressed', String(mode === 'all'));
-  if (state.currentQuiz.graded) {
-    renderQuizResults();
-    return;
-  }
-  const content = mode === 'all'
-    ? questions.map((question, questionIndex) => quizQuestionMarkup(question, questionIndex)).join('')
-    : quizQuestionMarkup(questions[index], index);
-  const percent = Math.round(((index + 1) / questions.length) * 100);
-  area.innerHTML = `
-    <div class="quiz-progress-wrap">
-      <div class="quiz-progress-label"><span>${mode === 'all' ? `${questions.length} questions` : `Question ${index + 1} of ${questions.length}`}</span><strong>${percent}%</strong></div>
-      <div class="quiz-progress-track"><span style="width:${percent}%"></span></div>
-    </div>
-    <div class="quiz-question-list">${content}</div>
-    <div class="quiz-navigation">
-      ${mode === 'one' ? `<button class="btn" id="quiz-previous-btn" ${index === 0 ? 'disabled' : ''}>Previous</button>` : ''}
-      <span class="hint">${mode === 'all' ? 'Answer each question, then submit.' : 'Take your time. You can move back and change an answer.'}</span>
-      ${mode === 'one' && index < questions.length - 1
-        ? '<button class="btn btn-primary" id="quiz-next-btn">Next question</button>'
-        : '<button class="btn btn-primary" id="grade-quiz-btn">Submit quiz</button>'}
-    </div>
-  `;
-  area.querySelectorAll('input').forEach(input => input.addEventListener('change', collectQuizAnswers));
-  area.querySelectorAll('input[type="text"]').forEach(input => input.addEventListener('input', collectQuizAnswers));
-  $('quiz-previous-btn')?.addEventListener('click', () => { collectQuizAnswers(); state.currentQuiz.index--; renderQuizView(); });
-  $('quiz-next-btn')?.addEventListener('click', () => { collectQuizAnswers(); state.currentQuiz.index++; renderQuizView(); });
-  $('grade-quiz-btn')?.addEventListener('click', () => { collectQuizAnswers(); gradeQuiz(); });
-}
-
-function gradeQuiz() {
-  const { doc, questions, answers } = state.currentQuiz;
-  state.currentQuiz.results = questions.map((question, index) => {
-    const answer = answers[index];
-    return {
-      question: question.question,
-      answer,
-      correct: normalizeAnswer(answer) === normalizeAnswer(question.correctAnswer || question.answer),
-      topic: question.topic || question.question,
-      correctAnswer: question.correctAnswer || question.answer || '',
-      explanation: question.explanation || ''
-    };
-  });
-  const correct = state.currentQuiz.results.filter(result => result.correct).length;
-  const score = questions.length ? Math.round((correct / questions.length) * 100) : 0;
-  state.currentQuiz.graded = true;
-  state.quizResults.push({
-    id: uid(),
-    documentId: doc.id,
-    documentTitle: doc.title,
-    course: doc.course,
-    unit: doc.unit,
-    score,
-    correct,
-    total: questions.length,
-    mistakes: state.currentQuiz.results.filter(result => !result.correct).map(result => ({
-      question: result.question,
-      answer: result.answer,
-      correctAnswer: result.correctAnswer,
-      explanation: result.explanation
-    })),
-    takenAt: Date.now()
-  });
-  idbSet('quizResults', state.quizResults);
-  setStatus('quiz-status', `Score: ${correct}/${questions.length} (${score}%).`);
-  renderProgress();
-  renderQuizView();
-}
-
-function renderQuizResults() {
-  const correct = state.currentQuiz.results.filter(result => result.correct).length;
-  const weakTopics = state.currentQuiz.results.filter(result => !result.correct);
-  $('quiz-area').innerHTML = `
-    <section class="quiz-results">
-      <span class="results-kicker">QUIZ COMPLETE</span>
-      <div class="results-score">${correct}<span>/${state.currentQuiz.questions.length}</span></div>
-      <h2>${Math.round((correct / state.currentQuiz.questions.length) * 100)}% correct</h2>
-      <p>${weakTopics.length ? 'Here are a few topics worth another look.' : 'Excellent work. You got every question right.'}</p>
-      ${weakTopics.length ? `<div class="weak-topics"><strong>Topics to review</strong><ul>${weakTopics.map(result => `<li>${escapeHtml(result.topic)}</li>`).join('')}</ul></div>` : ''}
-      <div class="row quiz-result-actions">
-        ${weakTopics.length ? '<button class="btn btn-primary" id="mistakes-to-cards-btn">Make flashcards from mistakes</button>' : ''}
-        ${weakTopics.length ? '<button class="btn" id="quiz-mistakes-open">Review mistakes</button>' : ''}
-        <button class="btn" id="retake-quiz-btn">Retake quiz</button>
-        </div>
-    </section>
-  `;
-  $('mistakes-to-cards-btn')?.addEventListener('click', makeFlashcardsFromMistakes);
-  $('quiz-mistakes-open')?.addEventListener('click', () => {
-    const list = $('quiz-mistake-list');
-    list.innerHTML = weakTopics.map(result => `<li><strong>${escapeHtml(result.question)}</strong><span>Your answer: ${escapeHtml(result.answer || 'No answer')}</span><span>Correct answer: ${escapeHtml(result.correctAnswer || 'Not recorded')}</span>${result.explanation ? `<p>${escapeHtml(result.explanation)}</p>` : ''}</li>`).join('');
-    paginateToFit(list, { label: 'Quiz mistake pages', itemHeight: 72 });
-    $('quiz-mistakes-dialog').showModal();
-    requestAnimationFrame(() => paginateToFit(list, { label: 'Quiz mistake pages', itemHeight: 72 }));
-  });
-  $('retake-quiz-btn').addEventListener('click', () => {
-    state.currentQuiz.answers = Array(state.currentQuiz.questions.length).fill('');
-    state.currentQuiz.index = 0;
-    state.currentQuiz.graded = false;
-    state.currentQuiz.results = [];
-    renderQuizView();
-  });
-}
-
-async function makeFlashcardsFromMistakes() {
-  if (state.currentQuiz.madeFlashcards) return;
-  const mistakes = state.currentQuiz.results.filter(result => !result.correct);
-  const records = mistakes.map(result => ({
-    front: result.question,
-    back: result.answer ? `Your answer: ${result.answer}\nCorrect answer: ${state.currentQuiz.questions.find(question => question.question === result.question)?.correctAnswer || ''}` : `Correct answer: ${state.currentQuiz.questions.find(question => question.question === result.question)?.correctAnswer || 'Review this topic.'}`,
-    subject: state.currentQuiz.doc.course || 'General',
-    unit: state.currentQuiz.doc.unit || '',
-    format: 'basic',
-    aiGenerated: false,
-    mastered: false
-  }));
-  const added = await importFlashcardRecords(records);
-  state.currentQuiz.madeFlashcards = true;
-  setStatus('quiz-status', `Added ${added} flashcards from your mistakes.`);
-  $('mistakes-to-cards-btn').disabled = true;
-  $('mistakes-to-cards-btn').textContent = 'Flashcards added';
 }
 
 function showChartEmpty(container, message, summary) {
@@ -4218,93 +2947,6 @@ $('learning-topic').addEventListener('change', async event => {
   }
 });
 
-$('upload-doc-btn').addEventListener('click', addDocument);
-function updateSelectedUpload(file) {
-  const allowed = file && (file.type === 'application/pdf' || file.type === 'text/plain'
-    || /\.(pdf|txt)$/i.test(file.name));
-  if (!file || !allowed) {
-    $('document-metadata').classList.add('hidden');
-    $('upload-dropzone').classList.remove('has-file');
-    $('upload-file-name').classList.add('hidden');
-    $('upload-file-name').textContent = '';
-    if (file) setStatus('doc-status', 'Only PDF and TXT files are supported.');
-    return;
-  }
-  $('document-metadata').classList.remove('hidden');
-  $('upload-dropzone').classList.add('has-file');
-  $('upload-file-name').textContent = `${file.name} · ${formatBytes(file.size)}`;
-  $('upload-file-name').classList.remove('hidden');
-  setStatus('doc-status', '');
-}
-$('doc-file').addEventListener('change', event => updateSelectedUpload(event.target.files[0]));
-const uploadDropzone = $('upload-dropzone');
-['dragenter', 'dragover'].forEach(type => uploadDropzone.addEventListener(type, event => {
-  event.preventDefault();
-  uploadDropzone.classList.add('dragging');
-}));
-['dragleave', 'drop'].forEach(type => uploadDropzone.addEventListener(type, event => {
-  event.preventDefault();
-  uploadDropzone.classList.remove('dragging');
-}));
-uploadDropzone.addEventListener('drop', event => {
-  const file = event.dataTransfer.files[0];
-  if (!file) return;
-  const transfer = new DataTransfer();
-  transfer.items.add(file);
-  $('doc-file').files = transfer.files;
-  updateSelectedUpload(file);
-});
-['doc-search', 'doc-sort', 'doc-filter'].forEach(id => $(id).addEventListener('input', renderDocuments));
-$('active-doc-select').addEventListener('change', e => previewDocument(e.target.value));
-$('document-list-view').addEventListener('click', () => {
-  $('panel-documents').classList.remove('show-document-reader');
-  $('document-list-view').classList.add('active');
-  $('document-list-view').setAttribute('aria-pressed', 'true');
-  $('document-reader-view').classList.remove('active');
-  $('document-reader-view').setAttribute('aria-pressed', 'false');
-});
-$('document-reader-view').addEventListener('click', () => {
-  $('panel-documents').classList.add('show-document-reader');
-  $('document-list-view').classList.remove('active');
-  $('document-list-view').setAttribute('aria-pressed', 'false');
-  $('document-reader-view').classList.add('active');
-  $('document-reader-view').setAttribute('aria-pressed', 'true');
-});
-$('open-doc-btn').addEventListener('click', () => $('active-doc-select').value && openRawDocument($('active-doc-select').value));
-$('original-text-toggle').addEventListener('click', () => {
-  const doc = state.documents.find(item => item.id === state.currentPreviewDocId);
-  if (!doc || (doc.originalExtractedText || doc.extractedText) === doc.extractedText) return;
-  state.showOriginalDocumentText = !state.showOriginalDocumentText;
-  previewDocument(doc.id);
-});
-$('doc-progress').addEventListener('input', e => {
-  const doc = state.documents.find(d => d.id === state.currentPreviewDocId);
-  if (!doc) return;
-  doc.readingProgress = parseInt(e.target.value) || 0;
-  idbSet('documents', state.documents);
-  renderProgress();
-  renderDocuments();
-});
-$('document-page-prev').addEventListener('click', () => changeDocumentPage(state.documentPageIndex - 1));
-$('document-page-next').addEventListener('click', () => changeDocumentPage(state.documentPageIndex + 1));
-$('document-page-jump').addEventListener('change', event => {
-  const page = Number(event.target.value);
-  if (!Number.isInteger(page) || page < 1 || page > state.documentTextPages.length) {
-    event.target.value = String(state.documentPageIndex + 1);
-    return;
-  }
-  changeDocumentPage(page - 1);
-});
-if (typeof ResizeObserver !== 'undefined') {
-  const documentPreviewObserver = new ResizeObserver(() => {
-    if (!state.currentPreviewDocId) return;
-    const previousPage = state.documentPageIndex;
-    state.documentTextPages = splitDocumentPages($('doc-preview').dataset.fullText || '', $('doc-preview'));
-    state.documentPageIndex = Math.min(previousPage, state.documentTextPages.length - 1);
-    renderDocumentPage();
-  });
-  documentPreviewObserver.observe($('doc-preview'));
-}
 $('chat-send').addEventListener('click', () => sendChat());
 function updateTutorConnectionStatus() {
   $('tutor-connection-chip').textContent = 'Connected';
@@ -4430,64 +3072,6 @@ $('card-again-btn').addEventListener('click', () => markStudyCard(false));
 $('card-study-prev-btn').addEventListener('click', () => navigateStudyCard(-1));
 $('card-study-next-btn').addEventListener('click', () => navigateStudyCard(1));
 $('card-study-exit-btn').addEventListener('click', exitCardStudy);
-$('generate-quiz-btn').addEventListener('click', generateQuiz);
-$('quiz-mode-one').addEventListener('click', () => {
-  if (!state.currentQuiz || state.currentQuiz.graded) return;
-  collectQuizAnswers();
-  state.currentQuiz.mode = 'one';
-  renderQuizView();
-});
-$('quiz-mode-all').addEventListener('click', () => {
-  if (!state.currentQuiz || state.currentQuiz.graded) return;
-  collectQuizAnswers();
-  state.currentQuiz.mode = 'all';
-  renderQuizView();
-});
-$('new-note-btn').addEventListener('click', () => openNoteForm(null));
-$('cancel-note-btn').addEventListener('click', closeNoteForm);
-$('save-note-btn').addEventListener('click', saveNote);
-$('notes-search').addEventListener('input', renderNotes);
-$('notes-sort').addEventListener('change', renderNotes);
-$('note-title').addEventListener('input', renderNotePreview);
-$('note-tag').addEventListener('input', renderNotePreview);
-$('note-unit').addEventListener('input', renderNotePreview);
-$('note-tags-input').addEventListener('input', renderNotePreview);
-$('note-body').addEventListener('input', renderNotePreview);
-$('notes-back-btn').addEventListener('click', backToNotebooks);
-$('notes-prev-btn').addEventListener('click', () => navigateNotebookNote(-1));
-$('notes-next-btn').addEventListener('click', () => navigateNotebookNote(1));
-$('notebook-note-select').addEventListener('change', event => selectNote(event.target.value));
-document.addEventListener('keydown', event => {
-  if (!state.activeNotebookKey
-    || $('notes-workspace').classList.contains('hidden')
-    || state.editingNoteId
-    || document.querySelector('dialog[open]')) return;
-  if (event.target instanceof Element
-    && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
-  if (event.key === 'ArrowRight') {
-    event.preventDefault();
-    navigateNotebookNote(1);
-  } else if (event.key === 'ArrowLeft') {
-    event.preventDefault();
-    navigateNotebookNote(-1);
-  } else if (event.key === 'Escape') {
-    event.preventDefault();
-    backToNotebooks();
-  }
-});
-$('generate-notes-btn').addEventListener('click', generateNotesFromDocument);
-$('export-notes-btn').addEventListener('click', () => downloadJSON(state.notes, 'margin-notes.json'));
-$('import-notes-btn').addEventListener('click', () => $('import-notes-file').click());
-$('import-notes-file').addEventListener('change', e => readJSONFile(e.target.files[0], data => {
-  if (Array.isArray(data)) {
-    data.forEach(n => state.notes.push({ id: uid(), title: n.title || '', tag: n.tag || '', unit: n.unit || '', tags: normalizeNoteTags(n.tags), body: cleanNoteBody(n.body), aiGenerated: !!n.aiGenerated, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now() }));
-    state.selectedNoteId = state.notes.at(-1)?.id || state.selectedNoteId;
-    if (state.selectedNoteId) state.activeNotebookKey = noteNotebookKey(state.notes.find(note => note.id === state.selectedNoteId));
-    persistNotesReaderPosition();
-    idbSet('notes', state.notes);
-    renderEverything();
-  }
-}));
 $('export-all-data-btn').addEventListener('click', () => {
   (async () => {
     try {
@@ -4698,8 +3282,6 @@ $('tutor-history-dialog').addEventListener('click', async event => {
   }
 });
 $('reply-dialog-close').addEventListener('click', () => $('reply-dialog').close());
-$('code-dialog-close').addEventListener('click', () => $('code-dialog').close());
-$('quiz-mistakes-close').addEventListener('click', () => $('quiz-mistakes-dialog').close());
 $('tutor-study-scope').addEventListener('change', () => {
   $('tutor-study-scope').setAttribute('aria-label', 'Study material scope');
 });
@@ -4707,11 +3289,55 @@ on('timer:session-logged', () => renderProgress());
 on('classes:changed', () => renderEverything());
 on('assignments:changed', () => renderEverything());
 on('assignment-brief:changed', () => renderEverything());
+on('documents:changed', () => renderEverything());
+on('flashcards:create-from-note', async ({ records, noteTitle, onComplete, onError }) => {
+  try {
+    await importFlashcardRecords(records);
+    activatePage('cards');
+    setFlashcardsView('cards');
+    setStatus('cards-ai-status', `Added ${records.length} cards from ${noteTitle || 'your note'}.`);
+    onComplete?.();
+  } catch (error) {
+    onError?.(error);
+  }
+});
+on('tutor:ask-about-note', ({ note }) => {
+  activatePage('tutor');
+  $('tutor-use-material').checked = true;
+  localStorage.setItem(TUTOR_MATERIAL_KEY, 'true');
+  $('settings-tutor-material').checked = true;
+  $('tutor-study-scope').value = 'all';
+  $('chat-input').value = `Help me understand the main ideas in my note "${note.title || 'Untitled note'}".`;
+  $('chat-input').focus();
+});
+on('flashcards:create-from-mistakes', async ({ records, onComplete, onError }) => {
+  try {
+    const added = await importFlashcardRecords(records);
+    onComplete?.(added);
+  } catch (error) {
+    onError?.(error);
+  }
+});
 
 async function init() {
   initUndo({ flashcardApi, refreshFlashcardData, renderEverything });
   initializeCustomControls();
   initTimer();
+  initDocuments({ renderProgress });
+  initQuiz({
+    callAI,
+    aiDocumentPayload,
+    activatePage,
+    renderProgress
+  });
+  initMarkdown();
+  initNotes({
+    callAI,
+    aiDocumentPayload,
+    renderEverything,
+    updateStudyMaterialIndex,
+    renderTaxonomy
+  });
   initAssignmentBrief({
     briefsApi: assignmentBriefsApi,
     apiFetch,
@@ -4772,11 +3398,7 @@ async function init() {
     localStorage.setItem('studybuddy-active-conversation', state.activeConversationId);
     await persistTutorConversations();
   }
-  if (await idbGet(NOTE_CLEANUP_KEY) !== 1) {
-    state.notes = state.notes.map(note => ({ ...note, body: cleanNoteBody(note.body) }));
-    await idbSet('notes', state.notes);
-    await idbSet(NOTE_CLEANUP_KEY, 1);
-  }
+  await cleanupStoredNotes();
   await loadFlashcardsFromServer();
   state.progressDataLoading = false;
   renderTimer();
