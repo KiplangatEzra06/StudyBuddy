@@ -1,8 +1,8 @@
 const DB_NAME = 'margin-db';
-const STORE = 'kv';
+export const STORE = 'kv';
 let dbPromise = null;
 
-function openDB() {
+export function openDB() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);

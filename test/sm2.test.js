@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { calculateSm2, qualityForScore } = require('../sm2');
+const { calculateSm2, qualityForScore } = require('../backend/services/sm2');
 
 const now = new Date('2026-10-31T12:00:00.000Z');
 const newCard = { repetitions: 0, interval_days: 0, ease_factor: 2.5 };

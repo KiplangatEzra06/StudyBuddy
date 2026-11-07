@@ -1,0 +1,10 @@
+export const TUTOR_MATERIAL_KEY = 'studybuddy-tutor-material';
+export const NOTE_CLEANUP_KEY = 'studybuddy-note-cleanup-version';
+export const NOTES_NOTEBOOK_KEY = 'studybuddy-notes-active-notebook';
+export const NOTES_SELECTED_NOTE_KEY = 'studybuddy-notes-selected-note';
+export const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+export const REMINDERS_ENABLED_KEY = 'studybuddy-assignment-reminders';
+export const FLASHCARD_IMPORT_DONE_KEY = 'studybuddy-flashcards-neon-imported';
+export const FLASHCARD_VIEW_KEY = 'studybuddy-flashcards-active-view';
+export const THEME_KEY = 'studybuddy-theme';
+export const SIDEBAR_COLLAPSE_KEY = 'studybuddy-sidebar-collapsed';

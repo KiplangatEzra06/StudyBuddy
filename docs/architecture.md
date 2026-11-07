@@ -1,56 +1,48 @@
-# StudyBuddy repository architecture
+# StudyBuddy architecture
 
-Stage B separates the application entrypoints and infrastructure responsibilities without changing data or API contracts. Stage C establishes a dedicated design-token and shared-component layer. Stage D groups navigation around the existing features and adds a collapsible desktop sidebar while retaining the mobile drawer.
+StudyBuddy is a single-user study application served by Express. Its browser UI is native JavaScript modules; server-backed flashcards, reviews, assignment briefs, authentication, and AI requests use the same-origin API. Documents, notes, classes, assignments, quizzes, timer sessions, and Tutor history are stored in the browser.
 
-## Frontend
+## Runtime entrypoints
 
-- `public/index.html` remains the page shell.
-- `public/design-tokens.css` is the single source for light, dark, and system theme variables, including color, spacing, radius, typography, and layering tokens.
-- `public/styles.css` contains page and feature-specific layout and presentation rules.
-- `public/components.css`, loaded after feature styles, contains shared button, form-control, and panel primitives so common states are consistent across the app.
-- `public/app.js` is the native ES-module entrypoint. It imports `frontend/app/main.js`.
-- `frontend/app/main.js` loads `frontend/app/runtime.js`, which currently holds the pre-existing feature logic and initialization.
-- `frontend/services/api.js` owns same-origin API requests, cookies, timeout, and unauthorized-session callback behavior.
-- `frontend/services/storage.js` owns the existing IndexedDB `margin-db` database and `kv` store helpers.
-- `frontend/features/calendar-data.js` owns calendar date keys, event derivation, and next-event selection; the DOM rendering and interactions remain in the runtime.
-- `frontend/features/backup-data.js` owns backup schema validation and ID-preserving collection merges; browser storage and import/export interactions remain in the runtime.
-- `frontend/features/tutor-markdown.js` owns safe Tutor Markdown rendering, including streamable code/table markup and source citation chips; it does not modify conversation history.
-- Express serves `frontend/` from `/frontend`; there is no build step.
-
-The runtime remains the coordinator for shared state, DOM rendering, and cross-feature interactions. The Assignments navigation view reuses the existing course/assignment panel and records; Study Sessions reuses the existing timer-session history and progress data. Neither creates a new data model or placeholder page. The dashboard aggregates existing local document, class, assignment, quiz, and focus-session data plus server-backed flashcard due counts, and each dashboard section exposes loading, empty, and error states.
+- `server.js` loads environment configuration, starts the HTTP listener when run directly, and exports the Express app for tests.
+- `backend/app/index.js` composes middleware, sessions, API routers, static files, and error handling.
+- `public/index.html` is the served app shell. The repository-root `index.html` redirects static-host visits to `public/index.html`.
+- `public/app.js` loads the frontend entrypoint in `frontend/app/main.js`; `main.js` imports `app/bootstrap.js`.
+- Express serves browser modules at `/frontend/` and public assets at `/`.
 
 ## Backend
 
-- Root `server.js` remains the `npm start` and test-compatible entrypoint.
-- `backend/app/index.js` builds the Express application, configures sessions and global middleware, mounts the route modules, and serves health and static routes. It does not build a shared route context.
-- `backend/routes/auth.js` owns login, logout, and session-status endpoints.
-- `backend/routes/ai.js`, `backend/routes/cards.js`, and `backend/routes/review.js` only map a method and path to a controller function.
-- `backend/controllers/ai.js`, `backend/controllers/cards.js`, and `backend/controllers/review.js` parse and validate input, call services or repositories, and send the response. Each controller requires the services, repositories, prompts, and database helpers it needs.
-- `backend/repositories/` holds the deck, card, and review SQL. Repository functions take the shared `query` or `transaction` helper and return the rows the controllers send.
-- `backend/middleware/request.js` owns JSON/CSRF checks and authenticated-session enforcement.
-- `backend/services/ai-content.js` owns AI response parsing, prompt input validation, and generation error handling.
-- `backend/services/cards.js` owns card/deck normalization, validation, and shared card query data.
-- `backend/services/database-errors.js` owns consistent database failure responses.
-- `backend/services/ollama.js` and `backend/services/sm2.js` contain Ollama integration and spaced-repetition logic; `backend/config/prompts.js` contains prompt configuration.
-- `db/` stays at the repository root so existing migration tooling and the `npm run migrate` command remain unchanged.
+The usual request path is **routes → controllers → services and repositories**:
 
-Requests flow from routes to controllers, then to services and repositories. No database or API-contract changes were made. `POST /api/ai` still streams server-sent events when `stream` is true, including aborting the upstream request when the client disconnects.
+1. `backend/routes/` maps HTTP methods and paths to controller handlers.
+2. `backend/controllers/` validates requests, coordinates the domain work, and writes responses.
+3. `backend/services/` holds reusable validation, normalization, AI-provider, database-error, ownership, assignment-brief, and SM-2 behavior.
+4. `backend/repositories/` contains SQL operations for decks, cards, and reviews; controllers pass the database query helpers to those operations.
 
-## Feature presentation and data boundaries
+`backend/routes/auth.js` owns the small session login/logout/status handlers directly. The assignment-brief router also contains its request-specific upload and persistence flow while using the assignment-brief service for file and text validation. Middleware in `backend/middleware/request.js` enforces authentication and JSON/CSRF requirements. `backend/config/prompts.js` contains AI prompts.
 
-Stage F refinements complete the Flashcards, Notes, Calendar, AI Tutor, Documents, Quiz, Courses/Assignments, Focus Timer, Progress/Study Sessions, and Settings views. These are presentation-only refinements over the existing shared design tokens and components; feature behavior and storage/API contracts remain unchanged. Calendar continues to use the user's confirmed Sunday-first weekday preference.
+`db/pool.js` owns the PostgreSQL pool and query helpers; `db/schema.sql` and `db/migrate.js` define and apply the database schema. `scripts/hash-password.js` creates the configured password hash. `backend/services/sm2.js` is the sole SM-2 implementation and is imported directly by the review controller and tests.
 
-Browser-local records use the `margin-db` IndexedDB database and its `kv` store. The main keys are `documents`, `notes`, `quizResults`, `timerSessions`, `classes`, `assignments`, and `tutorConversations`; flashcards are server-backed. Theme and other small UI preferences use `localStorage`. See the frontend and backend READMEs for the storage key list and HTTP API inventory.
+## Frontend
 
-## Deployment and compatibility
+Frontend responsibilities are organized into `app/`, `features/`, `services/`, and `shared/`:
 
-`npm start` still invokes `server.js`, `npm run migrate` still targets `db/migrate.js`, and `npm test` runs the existing regression suite plus focused route, service, and calendar-data tests. The frontend module files are served same-origin with JavaScript revalidation; existing API and static asset paths are retained.
+- `frontend/app/` contains the entrypoint, bootstrap, authentication flow, and page navigation. The bootstrap loads data into shared state, initializes modules, and coordinates whole-app rendering.
+- `frontend/features/` contains the UI and interaction modules: assignment briefs, assignments, calendar, classes, dashboard, documents, flashcards, learning/review, notes, progress, quiz, settings, timer, and Tutor. Tutor source indexing and Tutor Markdown rendering live in `tutor-sources.js` and `tutor-markdown.js`.
+- `frontend/services/` provides the authenticated API client, IndexedDB access, and assignment-brief API adapter.
+- `frontend/shared/` contains shared state, the cross-feature event bus, and reusable data, DOM, formatting, file, Markdown, select, pagination, constants, and undo helpers.
 
-## Stage G verification record
+Features communicate through the shared event bus or callbacks supplied by the bootstrap; feature modules do not import other feature modules. `features/backup-data.js` and `features/calendar-data.js` are compatibility wrappers around the corresponding shared modules.
 
-- The configured Node test command passed all 21 tests.
-- `frontend/app/runtime.js` passed Node's syntax check.
-- Signed-in browser navigation was smoke-checked on desktop for the feature destinations and at 390px wide for Documents, Quiz, Progress, and Settings; these views had no horizontal page overflow.
-- Read-only API checks returned success for `/health`, `/api/auth/me`, `/api/decks`, `/api/cards`, `/api/review/next`, and `/api/stats/topics`.
-- The preview contained server-backed flashcards but no documents, assignments, or recorded study sessions. To preserve user data and avoid sending their material to an AI provider, manual upload/import, AI generation, quiz submission, deletion, and timer-completion workflows were not exercised. Automated tests cover validation and selected services, not full end-to-end workflows for those actions.
-- No live service was changed or deployed.
+## Public assets and styling
+
+- `public/design-tokens.css` defines theme tokens.
+- `public/styles/base.css` contains shared page styles; `public/styles/layout.css` contains the app shell, sidebar, and mobile drawer.
+- `public/styles/` contains the ordered Dashboard, Flashcards, Notes, Calendar, Classes, Documents, Quiz, Timer, Progress, Tutor, Settings, and assignment-workspace stylesheets.
+- `public/components.css` loads last for shared component styles.
+
+The repository-root `index.html` is only a static-host redirect; the Express server serves `public/index.html` directly at `/`.
+
+## Tests
+
+Run `npm test` for the Node test suite. PostgreSQL integration tests run when `TEST_DATABASE_URL` points to a dedicated test database; otherwise they are skipped.

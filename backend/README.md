@@ -1,55 +1,35 @@
 # Backend
 
-The root `server.js` remains the Render-compatible entrypoint and test import. It loads `.env`, starts the app when run directly, and exports the Express instance.
+The Node.js/Express backend serves the StudyBuddy browser app and provides its authenticated API. `server.js` is the process entrypoint and exports the Express app for tests; `backend/app/index.js` composes the middleware, routes, static hosting, and error handling.
 
-## Runtime modules
+## Request structure
 
-- `app/index.js` composes Express middleware, mounts route modules, and serves health and static files. It does not pass a shared route context.
-- `routes/auth.js` owns login, logout, and session-status routes.
-- `routes/ai.js`, `routes/cards.js`, and `routes/review.js` map each method and path to a controller. Request parsing, service and repository calls, and responses live in `controllers/ai.js`, `controllers/cards.js`, and `controllers/review.js`.
-- `middleware/request.js` owns JSON/CSRF validation and authenticated-session enforcement.
-- `services/ai-content.js`, `services/cards.js`, and `services/database-errors.js` own shared route-family validation, parsing, normalization, and error responses.
-- `services/ollama.js` and `services/sm2.js` contain the AI integration and spaced-repetition logic.
-- `config/prompts.js` contains AI prompts.
-- The existing PostgreSQL pool and migration tooling remain in `../db/`.
+Most API requests follow **routes → controllers → services and repositories**:
 
-## Repositories
+- `routes/` maps API paths to controller functions.
+- `controllers/` validates inputs, coordinates services and repositories, and sends responses.
+- `services/` contains shared AI parsing and validation, card normalization, assignment-brief validation, database error handling, owner IDs, Ollama integration, and SM-2 scheduling.
+- `repositories/` contains SQL-backed operations for decks, cards, and reviews.
+- `middleware/request.js` enforces authentication and JSON/CSRF requirements.
 
-SQL for decks, cards, and reviews lives in `repositories/`. Controllers require `query` and `transaction` from `db/pool.js` and pass them into these functions. The functions return the same rows the handlers used before.
+Authentication routes handle session login, logout, and status directly. The assignment-brief router owns its request flow and uses the assignment-brief service for upload and extracted-text validation. The app wiring and remaining exceptions are described in [the architecture overview](../docs/architecture.md).
 
-- `repositories/decks.js`: `listDecks`, `createDeck`, `renameDeck`, `deleteDeck`
-- `repositories/cards.js`: `listCards`, `createCard`, `updateCard`, `softDeleteCard`, `purgeCard`, `restoreCard`, `importCards`, `saveCards`
-- `repositories/reviews.js`: `listDueCards`, `countDueCards`, `findCardForGrading`, `saveReviewGrade`, `listDeckStatistics`, `listReviewActivity`
+## Supporting modules
 
-No API or database contracts changed during extraction. Controllers share the PostgreSQL pool by requiring `db/pool.js` directly.
+- `backend/config/prompts.js` stores AI prompts.
+- `db/pool.js` owns the PostgreSQL pool and query helpers; `db/schema.sql` and `db/migrate.js` define and apply the schema.
+- `scripts/hash-password.js` generates a bcrypt password hash.
+- `backend/services/sm2.js` is the canonical spaced-repetition implementation; backend code and tests import it directly.
+- The repository root contains `server.js`, `package.json`, and the root `index.html` static-host redirect. Express serves the actual app shell from `public/index.html`.
 
-## HTTP API inventory
+## Development
 
-All state-changing `/api` requests must use `application/json` and the `X-Requested-With: StudyBuddy` header. Login, logout, and session-status routes are mounted before authenticated API middleware; the remaining `/api` routes require a signed-in session. AI routes also use the shared 20-requests-per-minute limiter. `GET /health` is the public process health check and returns `{ "status": "ok" }`.
+Install dependencies, configure `.env` from `.env.example`, apply migrations, then start the server:
 
-| Method and path | Purpose |
-| --- | --- |
-| `POST /api/auth/login` | Authenticate and establish the session cookie. |
-| `POST /api/auth/logout` | Destroy the current session. |
-| `GET /api/auth/me` | Return whether the current session is authenticated. |
-| `POST /api/ai` | Send a Tutor question and conversation context for an AI response. |
-| `POST /api/cards/generate` | Generate flashcards from a topic/source prompt. |
-| `POST /api/generate-notes` | Generate notes from supplied document content. |
-| `POST /api/generate-flashcards` | Generate flashcards from supplied document content. |
-| `POST /api/generate-quiz` | Generate a quiz from supplied document content. |
-| `GET /api/decks`, `POST /api/decks` | List decks or create a deck. |
-| `PATCH /api/decks/:id`, `DELETE /api/decks/:id` | Rename or delete a deck. |
-| `GET /api/cards`, `POST /api/cards` | List cards or create a card. |
-| `PATCH /api/cards/:id`, `DELETE /api/cards/:id` | Update or delete a card; card deletion is soft by default, with an explicit purge option. |
-| `POST /api/cards/:id/restore` | Restore a soft-deleted card. |
-| `POST /api/cards/import` | Import a batch of cards. |
-| `POST /api/cards/save` | Save selected generated cards. |
-| `GET /api/review/next` | Read due cards and their total count; accepts optional `limit` and `deck_id`. |
-| `POST /api/review/grade` | Grade an answer and persist its review and next spaced-repetition schedule. |
-| `GET /api/stats/topics` | Read deck/topic statistics and 14-day review activity. |
+```bash
+npm install
+npm run migrate
+npm start
+```
 
-AI generation and Tutor routes receive content included in the caller's request and can contact the configured AI provider. Local document, note, course, assignment, quiz, and timer records are not exposed as server CRUD APIs; their persistence is managed in browser IndexedDB.
-
-## Validation
-
-Run the focused project regression suite with `npm test`. It covers authentication/session behavior, route mounting and input validation, service parsing/validation, spaced repetition, calendar derivation, and backup validation/merge behavior. Browser checks that use real signed-in data should remain read-only unless isolated disposable data is available.
+Run `npm test` for the regression suite. Database integration tests require `TEST_DATABASE_URL` to reference a dedicated test database.
