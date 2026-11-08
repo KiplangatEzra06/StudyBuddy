@@ -311,6 +311,7 @@
                   <h2 class="settings-heading">Assignments</h2>
                   <button class="classes-add-button" id="classes-add-assignment" type="button" aria-label="Add assignment" title="Add assignment">+</button>
                 </div>
+                <p class="status" id="assignment-save-status" role="status" aria-live="polite"></p>
                 <div class="item-list" id="classes-assignment-list" data-fit-paginate data-fit-item-height="100" aria-label="Assignments"></div>
                 <div class="empty-state hidden" id="assignments-empty">No assignments yet. Add one to track a due date.</div>
               </section>
@@ -358,14 +359,14 @@
                   </div>
                   <div class="row dialog-actions">
                     <button class="btn btn-primary" id="save-assignment-btn" type="submit">Save assignment</button>
-                    <button class="btn assignment-brief-action" id="assignment-open-brief-btn" type="button">Upload brief</button>
+                    <button class="btn assignment-brief-action" id="assignment-open-brief-btn" type="button">Attach assignment file</button>
                     <button class="btn" id="cancel-assignment-dialog" type="button">Cancel</button>
                   </div>
                 </form>
               </dialog>
               <dialog class="editor-dialog assignment-brief-dialog" id="assignment-brief-dialog" aria-labelledby="assignment-brief-title">
                 <div class="dialog-header">
-                  <h2 id="assignment-brief-title">Upload assignment brief</h2>
+                  <h2 id="assignment-brief-title">Attach assignment file</h2>
                   <button class="icon-btn dialog-close" id="close-assignment-brief-dialog" type="button" aria-label="Close dialog">×</button>
                 </div>
                 <p class="hint">Brief content is sent to Ollama Cloud when saved for this assignment.</p>
@@ -389,7 +390,7 @@
                 <progress id="assignment-brief-progress" class="assignment-brief-progress hidden" max="100" value="0" aria-label="Brief upload progress"></progress>
                 <p class="status" id="assignment-brief-status" role="status" aria-live="polite"></p>
                 <div class="row dialog-actions">
-                  <button class="btn assignment-brief-action" id="assignment-brief-save" type="button">Upload &amp; save brief</button>
+                  <button class="btn assignment-brief-action" id="assignment-brief-save" type="button">Attach &amp; save file</button>
                   <button class="btn btn-danger hidden" id="assignment-brief-remove" type="button">Remove brief</button>
                   <button class="btn" id="cancel-assignment-brief-dialog" type="button">Cancel</button>
                 </div>

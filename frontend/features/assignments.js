@@ -4,10 +4,11 @@ import { uid, formatDueDate } from '../shared/format.js';
 import { emit } from '../shared/bus.js';
 import { idbSet } from '../services/storage.js';
 import { confirmDeletion, softDeleteRecords } from '../shared/undo.js';
-import { paginateToFit } from '../shared/fit-paginator.js';
+import { paginateToFit, showFitItem } from '../shared/fit-paginator.js';
 import { REMINDERS_ENABLED_KEY } from '../shared/constants.js';
 
 let openAssignmentBriefDialog;
+let assignmentSavedStatusTimeout;
 
 function dateTimeInputValue(timestamp) {
   if (!Number.isFinite(timestamp)) return '';
@@ -34,11 +35,11 @@ export function assignmentMarkup(assignment) {
         <h3>${escapeHtml(assignment.title || 'Untitled assignment')}</h3>
         <time datetime="${new Date(dueAt).toISOString()}">${escapeHtml(formatDueDate(dueAt))}</time>
         ${assignment.details ? `<p>${escapeHtml(assignment.details)}</p>` : ''}
-        ${assignment.briefDocumentId ? '<span class="assignment-brief-label">Brief uploaded</span>' : ''}
+        ${assignment.briefDocumentId ? '<span class="assignment-brief-label">File attached</span>' : ''}
         ${Number.isFinite(assignment.reminderAt) && !assignment.completed ? `<span class="assignment-reminder-note">Reminder: ${escapeHtml(formatDueDate(assignment.reminderAt))}</span>` : ''}
       </div>
       <div class="assignment-actions">
-        <button class="btn btn-sm assignment-brief-action" type="button" data-assignment-brief="${escapeHtml(assignment.id)}">${assignment.briefDocumentId ? 'Replace brief' : 'Upload brief'}</button>
+        <button class="btn btn-sm assignment-brief-action" type="button" data-assignment-brief="${escapeHtml(assignment.id)}">${assignment.briefDocumentId ? 'Replace assignment file' : 'Attach assignment file'}</button>
         <button class="btn btn-sm" type="button" data-toggle-assignment="${escapeHtml(assignment.id)}">${assignment.completed ? 'Reopen' : 'Mark complete'}</button>
         <button class="icon-btn" type="button" data-edit-assignment="${escapeHtml(assignment.id)}" aria-label="Edit assignment" title="Edit">edit</button>
         <button class="icon-btn btn-danger" type="button" data-delete-assignment="${escapeHtml(assignment.id)}" aria-label="Delete assignment" title="Delete">x</button>
@@ -185,7 +186,7 @@ export function openAssignmentForm(id = null, classId = '', dueAt = null) {
     ? Number(assignment.dueAt)
     : dueAt == null ? NaN : Number(dueAt));
   $('assignment-reminder').value = assignment?.reminderAt == null ? '' : dateTimeInputValue(Number(assignment.reminderAt));
-  $('assignment-open-brief-btn').textContent = assignment?.briefDocumentId ? 'Replace brief' : 'Upload brief';
+  $('assignment-open-brief-btn').textContent = assignment?.briefDocumentId ? 'Replace assignment file' : 'Attach assignment file';
   renderAssignmentClassOptions(assignment?.classId || classId);
   $('assignment-dialog').showModal();
   $('assignment-title').focus();
@@ -196,7 +197,22 @@ export function resetAssignmentForm() {
   $('assignment-form').reset();
   $('assignment-dialog-title').textContent = 'Add an assignment';
   $('save-assignment-btn').textContent = 'Save assignment';
-  $('assignment-open-brief-btn').textContent = 'Upload brief';
+  $('assignment-open-brief-btn').textContent = 'Attach assignment file';
+}
+
+function announceAssignmentSaved(assignment) {
+  const status = $('assignment-save-status');
+  if (status) {
+    status.textContent = `Saved "${assignment.title}".`;
+    clearTimeout(assignmentSavedStatusTimeout);
+    assignmentSavedStatusTimeout = setTimeout(() => {
+      status.textContent = '';
+    }, 5000);
+  }
+  const list = $('classes-assignment-list');
+  if (list && list.offsetParent !== null) {
+    showFitItem(list, `[data-edit-assignment="${CSS.escape(assignment.id)}"]`);
+  }
 }
 
 export async function saveAssignment() {
@@ -218,21 +234,41 @@ export async function saveAssignment() {
     reminderSentAt: null,
     details: $('assignment-details').value.trim()
   };
-  let assignment = state.assignments.find(item => item.id === state.editingAssignmentId);
-  if (assignment) {
-    const reminderChanged = assignment.reminderAt !== reminderAt || assignment.dueAt !== dueAt;
-    fields.reminderSentAt = reminderChanged ? null : (assignment.reminderSentAt || null);
-    Object.assign(assignment, fields, { updatedAt: Date.now() });
+  const existingAssignment = state.assignments.find(item => item.id === state.editingAssignmentId);
+  let assignment;
+  let assignments;
+  if (existingAssignment) {
+    const reminderChanged = existingAssignment.reminderAt !== reminderAt || existingAssignment.dueAt !== dueAt;
+    fields.reminderSentAt = reminderChanged ? null : (existingAssignment.reminderSentAt || null);
+    assignment = { ...existingAssignment, ...fields, updatedAt: Date.now() };
+    assignments = state.assignments.map(item => item.id === assignment.id ? assignment : item);
   }
   else {
     assignment = { id: uid(), ...fields, completed: false, createdAt: Date.now() };
-    state.assignments.push(assignment);
+    assignments = [...state.assignments, assignment];
   }
+  let saved = false;
+  try {
+    saved = await idbSet('assignments', assignments);
+  } catch (error) {
+    console.warn('Could not save the assignment.', error);
+  }
+  if (!saved) {
+    clearTimeout(assignmentSavedStatusTimeout);
+    setStatus(
+      'assignment-save-status',
+      'Could not save the assignment in this browser. Check storage permissions and try again.'
+    );
+    return null;
+  }
+  if (existingAssignment) Object.assign(existingAssignment, assignment);
+  else state.assignments.push(assignment);
+  assignment = existingAssignment || assignment;
   $('assignment-dialog').close();
   resetAssignmentForm();
-  await idbSet('assignments', state.assignments);
   emit('assignments:changed');
   checkAssignmentReminders();
+  announceAssignmentSaved(assignment);
   return assignment;
 }
 
@@ -242,6 +278,15 @@ export function init(deps = {}) {
   $('assignment-form')?.addEventListener('submit', event => {
     event.preventDefault();
     saveAssignment();
+  });
+  $('assignment-open-brief-btn')?.addEventListener('click', async () => {
+    let id = state.editingAssignmentId;
+    if (!id) {
+      if (!$('assignment-form').reportValidity()) return;
+      id = (await saveAssignment())?.id;
+      if (!id) return;
+    }
+    openAssignmentBriefDialog?.(id);
   });
   $('assignment-due')?.addEventListener('input', () => $('assignment-reminder').setCustomValidity(''));
   $('assignment-reminder')?.addEventListener('input', () => $('assignment-reminder').setCustomValidity(''));
