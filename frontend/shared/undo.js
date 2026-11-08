@@ -133,13 +133,13 @@ export async function softDeleteRecords(changes, message, updates = []) {
   state.undoTimers.set(snapshot.id, setTimeout(() => purgeUndoSnapshot(snapshot.id), 8000));
 }
 
-function showUndoToast(snapshot, message) {
+export function showUndoToast(snapshot, message) {
   $('undo-toast-message').textContent = message;
   $('undo-toast').classList.remove('hidden');
   $('undo-toast-action').onclick = () => undoDelete(snapshot.id);
 }
 
-async function purgeUndoSnapshot(id) {
+export async function purgeUndoSnapshot(id) {
   const snapshot = state.deletedRecords.find(item => item.id === id);
   if (snapshot) {
     try {

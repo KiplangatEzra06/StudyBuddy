@@ -1,0 +1,82 @@
+
+
+    .assignment-brief-action,
+    .assignment-brief-action:hover,
+    .assignment-brief-action:active {
+      border-color: var(--btn-primary);
+      background: var(--btn-primary);
+      color: var(--btn-primary-text);
+    }
+
+    .assignment-brief-action:hover,
+    .assignment-brief-action:active {
+      border-color: var(--btn-primary);
+      background: var(--btn-primary);
+    }
+
+    .assignment-brief-dialog {
+      width: min(620px, calc(100vw - 28px));
+    }
+
+    .assignment-brief-source {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+      margin: 16px 0;
+    }
+
+    .assignment-brief-source label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .assignment-brief-dropzone {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      padding: 22px 16px;
+      border: 2px dashed var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface-soft);
+      text-align: center;
+    }
+
+    .assignment-brief-dropzone.is-dragging {
+      border-color: var(--btn-primary);
+      background: var(--color-violet-soft);
+    }
+
+    #assignment-brief-paste-source textarea {
+      width: 100%;
+      margin-top: 8px;
+      resize: vertical;
+    }
+
+    .assignment-brief-progress {
+      display: block;
+      width: 100%;
+      height: 10px;
+      margin: 14px 0;
+      accent-color: var(--btn-primary);
+    }
+
+    .assignment-brief-progress.hidden {
+      display: none;
+    }
+
+    .assignment-brief-label {
+      color: var(--color-violet);
+      font-weight: 650;
+    }
+
+    @media (max-width: 520px) {
+      .assignment-brief-source,
+      .assignment-brief-dialog .dialog-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .assignment-brief-dialog .dialog-actions .btn {
+        width: 100%;
+      }}

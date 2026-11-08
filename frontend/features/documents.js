@@ -363,6 +363,9 @@ function updateSelectedUpload(file) {
 
 export function init(deps = {}) {
   renderProgress = deps.renderProgress || renderProgress;
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
 
   $('upload-doc-btn')?.addEventListener('click', addDocument);
   $('doc-file')?.addEventListener('change', event => updateSelectedUpload(event.target.files[0]));

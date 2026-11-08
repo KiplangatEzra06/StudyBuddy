@@ -6,7 +6,7 @@ import {
   calendarEventsForDate as collectCalendarEvents,
   getNextCalendarEvent as findNextCalendarEvent,
   localDateKey
-} from './calendar-data.js';
+} from '../shared/calendar-data.js';
 
 let openAssignmentForm;
 let assignmentMarkup;

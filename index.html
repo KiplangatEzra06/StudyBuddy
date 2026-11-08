@@ -3,118 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex">
-  <title>StudyBuddy has moved</title>
-  <style>
-    :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
-    body { box-sizing: border-box; display: grid; min-height: 100vh; margin: 0; padding: 24px; place-items: center; background: #f5f6fb; color: #242a3b; }
-    main { width: min(100%, 560px); padding: 28px; border: 1px solid #e7e9f1; border-radius: 20px; background: #fff; }
-    h1 { margin-top: 0; }
-    button, a.continue { display: inline-block; margin: 8px 8px 0 0; padding: 10px 16px; border: 0; border-radius: 999px; background: #68538d; color: #fff; font: inherit; font-weight: 650; text-decoration: none; cursor: pointer; }
-    button:focus-visible, a:focus-visible { outline: 3px solid #5269d8; outline-offset: 3px; }
-    #status { min-height: 1.5em; }
-    @media (prefers-color-scheme: dark) {
-      body { background: #151927; color: #edf0fb; }
-      main { border-color: #353d54; background: #202638; }
-    }
-  </style>
+  <meta http-equiv="refresh" content="0; url=public/index.html">
+  <title>StudyBuddy</title>
 </head>
 <body>
-  <main>
-    <h1>StudyBuddy has moved</h1>
-    <p>StudyBuddy is now hosted with its backend. Export your browser data here first, then import the downloaded file from Settings on the new site.</p>
-    <button id="export-data" type="button">Export data</button>
-    <a class="continue" id="continue-link" href="https://studybuddy2-r2i6.onrender.com">Continue to StudyBuddy</a>
-    <p id="status" role="status" aria-live="polite"></p>
-  </main>
+  <p>Redirecting to StudyBuddy. If you are not redirected, <a href="public/index.html">open the app</a>.</p>
   <script>
-    (() => {
-      const newSite = 'https://studybuddy2-r2i6.onrender.com';
-      const collections = [
-        'documents', 'cards', 'notes', 'quizResults', 'timerSessions',
-        'classes', 'assignments', 'tutorConversations'
-      ];
-      const settingKeys = [
-        'studybuddy-theme', 'studybuddy-tutor-material',
-        'studybuddy-assignment-reminders', 'studybuddy-timer-sound',
-        'studybuddy-timer-notification'
-      ];
-      const status = document.getElementById('status');
-      document.getElementById('continue-link').href = newSite;
-
-      function readLocalData() {
-        return new Promise((resolve, reject) => {
-          const request = indexedDB.open('margin-db', 1);
-          request.onerror = () => reject(request.error || new Error('Could not open this browser’s StudyBuddy data.'));
-          request.onsuccess = () => {
-            const db = request.result;
-            if (!db.objectStoreNames.contains('kv')) {
-              db.close();
-              resolve({});
-              return;
-            }
-            const transaction = db.transaction('kv', 'readonly');
-            const getAll = transaction.objectStore('kv').getAll();
-            getAll.onsuccess = () => {
-              const values = Object.fromEntries(getAll.result.map(item => [item.key, item.value]));
-              db.close();
-              resolve(values);
-            };
-            getAll.onerror = () => {
-              db.close();
-              reject(getAll.error || new Error('Could not read the browser data.'));
-            };
-          };
-        });
-      }
-
-      document.getElementById('export-data').addEventListener('click', async () => {
-        const button = document.getElementById('export-data');
-        button.disabled = true;
-        status.textContent = 'Preparing your export…';
-        try {
-          const local = await readLocalData();
-          const cards = [
-            ...(Array.isArray(local.cards) ? local.cards : []),
-            ...(Array.isArray(local['flashcards-local-backup']) ? local['flashcards-local-backup'] : [])
-          ];
-          const seenCards = new Set();
-          const uniqueCards = cards.filter(card => {
-            const key = `${card.id || ''}\u0000${card.front || ''}\u0000${card.back || ''}`;
-            if (seenCards.has(key)) return false;
-            seenCards.add(key);
-            return true;
-          });
-          const data = Object.fromEntries(collections.map(key => [
-            key,
-            key === 'cards' ? uniqueCards : (Array.isArray(local[key]) ? local[key] : [])
-          ]));
-          const localSettings = Object.fromEntries(settingKeys
-            .filter(key => localStorage.getItem(key) !== null)
-            .map(key => [key, localStorage.getItem(key)]));
-          const backup = {
-            format: 'studybuddy-data',
-            version: 1,
-            exportedAt: new Date().toISOString(),
-            data,
-            localSettings
-          };
-          const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }));
-          const download = document.createElement('a');
-          download.href = blobUrl;
-          download.download = 'studybuddy-origin-transfer.json';
-          document.body.append(download);
-          download.click();
-          download.remove();
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-          status.textContent = `Export ready (${uniqueCards.length} flashcards). Redirecting to the new site…`;
-          setTimeout(() => window.location.assign(newSite), 2500);
-        } catch (error) {
-          status.textContent = error.message || 'Could not export browser data. Your data has not been changed.';
-          button.disabled = false;
-        }
-      });
-    })();
+    window.location.replace('public/index.html');
   </script>
 </body>
 </html>

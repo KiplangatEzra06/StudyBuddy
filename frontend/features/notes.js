@@ -1,36 +1,53 @@
 import { state } from '../shared/state.js';
-import { $, escapeHtml, setStatus } from '../shared/dom.js';
-import { uid, truncateText, safeFileName, slugify } from '../shared/format.js';
-import { emit } from '../shared/bus.js';
-import { idbGet, idbSet } from '../services/storage.js';
-import { confirmDeletion, softDeleteRecords } from '../shared/undo.js';
-import { downloadJSON, downloadText, readJSONFile } from '../shared/files.js';
-import { releaseFitPaginator } from '../shared/fit-paginator.js';
-import { NOTE_CLEANUP_KEY, NOTES_NOTEBOOK_KEY, NOTES_SELECTED_NOTE_KEY } from '../shared/constants.js';
-import { bindMarkdownCodeButtons, cleanNoteBody, renderMarkdown } from '../shared/markdown.js';
-
-let callAI = async () => ({});
-let aiDocumentPayload = doc => ({
-  id: doc.id,
-  title: doc.title,
-  course: doc.course,
-  unit: doc.unit,
-  text: truncateText(doc.extractedText, 14000)
-});
-let renderEverything = () => {};
-let updateStudyMaterialIndex = () => {};
-let renderTaxonomy = () => {};
-
+import { emit, on } from '../shared/bus.js';
+import {
+  bindMarkdownCodeButtons,
+  cleanMarkdownBody,
+  renderMarkdown,
+  renderMathInElementSafe
+} from '../shared/markdown.js';
+const NOTE_CLEANUP_KEY = 'studybuddy-note-cleanup-version';
+const NOTES_NOTEBOOK_KEY = 'studybuddy-notes-active-notebook';
+const NOTES_SELECTED_NOTE_KEY = 'studybuddy-notes-selected-note';
+const notes = state.notes;
+let selectedNoteId = sessionStorage.getItem(NOTES_SELECTED_NOTE_KEY) || null;
+let activeNotebookKey = sessionStorage.getItem(NOTES_NOTEBOOK_KEY) || '';
+let editingNoteId = null;
+let noteAutosaveTimer = null;
+let dependencies;
+const $ = id => document.getElementById(id);
+const uid = (...args) => dependencies.uid(...args);
+const idbSet = (...args) => dependencies.idbSet(...args);
+const callAI = (...args) => dependencies.callAI(...args);
+const aiDocumentPayload = (...args) => dependencies.aiDocumentPayload(...args);
+const truncateText = (...args) => dependencies.truncateText(...args);
+const getDocuments = (...args) => dependencies.getDocuments(...args);
+const setStatus = (...args) => dependencies.setStatus(...args);
+const updateStudyMaterialIndex = (...args) => dependencies.updateStudyMaterialIndex(...args);
+const renderTaxonomy = (...args) => dependencies.renderTaxonomy(...args);
+const renderEverything = (...args) => dependencies.renderEverything(...args);
+const releaseFitPaginator = (...args) => dependencies.releaseFitPaginator(...args);
+const softDeleteRecords = (...args) => dependencies.softDeleteRecords(...args);
+const confirmDeletion = (...args) => dependencies.confirmDeletion(...args);
+const downloadJSON = (...args) => dependencies.downloadJSON(...args);
+const readJSONFile = (...args) => dependencies.readJSONFile(...args);
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[character]));
 export function renderNotes() {
   const query = $('notes-search').value.trim().toLocaleLowerCase();
-  const filtered = sortNotes(state.notes.filter(note => !query || noteMatchesQuery(note, query)));
+  const filtered = sortNotes(notes.filter(note => !query || noteMatchesQuery(note, query)));
   const notebookGrid = $('notes-notebook-grid');
   const searchResults = $('notes-search-results');
   const workspace = $('notes-workspace');
   const readerNav = $('notes-reader-nav');
-  const notebook = filteredNotesForNotebook(state.activeNotebookKey);
-  if (state.activeNotebookKey && !notebook.length) {
-    state.activeNotebookKey = '';
+  const notebook = filteredNotesForNotebook(activeNotebookKey);
+  if (activeNotebookKey && !notebook.length) {
+    activeNotebookKey = '';
     sessionStorage.removeItem(NOTES_NOTEBOOK_KEY);
   }
 
@@ -48,11 +65,11 @@ export function renderNotes() {
   searchResults.classList.add('hidden');
   $('notes-search-empty').classList.add('hidden');
   $('notes-search-grid').replaceChildren();
-  if (!state.activeNotebookKey) {
+  if (!activeNotebookKey) {
     $('notes-notebooks-view').classList.remove('hidden');
     workspace.classList.add('hidden');
     readerNav.classList.add('hidden');
-    $('notes-empty').classList.toggle('hidden', state.notes.length > 0);
+    $('notes-empty').classList.toggle('hidden', notes.length > 0);
     renderNotebookTiles();
     return;
   }
@@ -62,8 +79,8 @@ export function renderNotes() {
   workspace.classList.remove('hidden');
   workspace.classList.remove('mobile-detail-open');
   readerNav.classList.remove('hidden');
-  if (!notebook.some(note => note.id === state.selectedNoteId)) {
-    state.selectedNoteId = notebook[0]?.id || null;
+  if (!notebook.some(note => note.id === selectedNoteId)) {
+    selectedNoteId = notebook[0]?.id || null;
     persistNotesReaderPosition();
   }
   $('notebook-note-list').innerHTML = notebook.map(note => noteListMarkup(note)).join('');
@@ -76,7 +93,7 @@ function noteNotebookName(note) {
   return String(note.tag || '').trim() || 'General';
 }
 
-export function noteNotebookKey(note) {
+function noteNotebookKey(note) {
   return noteNotebookName(note).toLocaleLowerCase();
 }
 
@@ -95,7 +112,7 @@ function sortNotes(items) {
 
 function filteredNotesForNotebook(key) {
   if (!key) return [];
-  return sortNotes(state.notes.filter(note => key === 'pinned'
+  return sortNotes(notes.filter(note => key === 'pinned'
     ? Boolean(note.pinned)
     : noteNotebookKey(note) === key));
 }
@@ -126,11 +143,11 @@ function notePlainText(value) {
 function noteListMarkup(note, searchResult = false) {
   const notebookLabel = noteNotebookName(note);
   const title = escapeHtml(note.title || 'Untitled');
-  const notebook = searchResult || state.activeNotebookKey === 'pinned'
+  const notebook = searchResult || activeNotebookKey === 'pinned'
     ? `<span class="note-card-course">${escapeHtml(notebookLabel)}</span>`
     : '';
   const preview = notePlainText(note.body);
-  return `<button class="note-card notebook-note-item ${note.id === state.selectedNoteId ? 'selected' : ''}" type="button" data-select-note="${escapeHtml(note.id)}" aria-pressed="${note.id === state.selectedNoteId}">
+  return `<button class="note-card notebook-note-item ${note.id === selectedNoteId ? 'selected' : ''}" type="button" data-select-note="${escapeHtml(note.id)}" aria-pressed="${note.id === selectedNoteId}">
     <span class="note-card-topline">${notebook}<span class="note-item-pin" ${note.pinned ? 'aria-label="Pinned"' : 'aria-hidden="true"'}>${note.pinned ? '★' : ''}</span></span>
     <strong>${title}</strong>
     ${preview ? `<span class="note-card-preview">${escapeHtml(preview.slice(0, 150))}${preview.length > 150 ? '…' : ''}</span>` : ''}
@@ -140,7 +157,7 @@ function noteListMarkup(note, searchResult = false) {
 
 function bindNoteSelection(container, fromSearch = false) {
   container.querySelectorAll('[data-select-note]').forEach(button => button.addEventListener('click', () => {
-    const note = state.notes.find(item => item.id === button.dataset.selectNote);
+    const note = notes.find(item => item.id === button.dataset.selectNote);
     if (!note) return;
     selectNote(note.id, fromSearch ? noteNotebookKey(note) : null);
   }));
@@ -148,7 +165,7 @@ function bindNoteSelection(container, fromSearch = false) {
 
 function renderNotebookTiles() {
   const groups = new Map();
-  state.notes.forEach(note => {
+  notes.forEach(note => {
     const key = noteNotebookKey(note);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(note);
@@ -156,7 +173,7 @@ function renderNotebookTiles() {
   const notebooks = [...groups.entries()]
     .sort((a, b) => noteNotebookName(a[1][0]).localeCompare(noteNotebookName(b[1][0])));
   const tiles = [];
-  const pinnedNotes = state.notes.filter(note => note.pinned);
+  const pinnedNotes = notes.filter(note => note.pinned);
   if (pinnedNotes.length) tiles.push(['pinned', 'Pinned', pinnedNotes]);
   notebooks.forEach(([key, group]) => tiles.push([key, noteNotebookName(group[0]), group]));
   $('notes-notebook-grid').innerHTML = tiles.map(([key, name, group]) => {
@@ -172,40 +189,44 @@ function renderNotebookTiles() {
     </button>`;
   }).join('');
   $('notes-notebook-grid').querySelectorAll('[data-open-notebook]').forEach(button => button.addEventListener('click', () => {
-    state.activeNotebookKey = button.dataset.openNotebook;
-    const notebook = filteredNotesForNotebook(state.activeNotebookKey);
-    state.selectedNoteId = notebook.find(note => note.id === state.selectedNoteId)?.id || notebook[0]?.id || null;
+    activeNotebookKey = button.dataset.openNotebook;
+    const notebook = filteredNotesForNotebook(activeNotebookKey);
+    selectedNoteId = notebook.find(note => note.id === selectedNoteId)?.id || notebook[0]?.id || null;
     persistNotesReaderPosition();
     renderNotes();
   }));
 }
 
-export function persistNotesReaderPosition() {
-  if (state.activeNotebookKey) sessionStorage.setItem(NOTES_NOTEBOOK_KEY, state.activeNotebookKey);
+function persistNotesReaderPosition() {
+  if (activeNotebookKey) sessionStorage.setItem(NOTES_NOTEBOOK_KEY, activeNotebookKey);
   else sessionStorage.removeItem(NOTES_NOTEBOOK_KEY);
-  if (state.selectedNoteId) sessionStorage.setItem(NOTES_SELECTED_NOTE_KEY, state.selectedNoteId);
+  if (selectedNoteId) sessionStorage.setItem(NOTES_SELECTED_NOTE_KEY, selectedNoteId);
   else sessionStorage.removeItem(NOTES_SELECTED_NOTE_KEY);
 }
 
 function renderNotebookReaderNav(notebook) {
-  const selectedIndex = notebook.findIndex(note => note.id === state.selectedNoteId);
+  const selectedIndex = notebook.findIndex(note => note.id === selectedNoteId);
   const index = selectedIndex < 0 ? 0 : selectedIndex;
   $('notes-position').textContent = notebook.length ? `Note ${index + 1} of ${notebook.length}` : 'No notes';
   $('notes-prev-btn').disabled = index <= 0;
   $('notes-next-btn').disabled = index >= notebook.length - 1;
   $('notebook-note-select').innerHTML = notebook.map((note, noteIndex) => {
-    const prefix = state.activeNotebookKey === 'pinned' ? `${noteNotebookName(note)} · ` : '';
+    const prefix = activeNotebookKey === 'pinned' ? `${noteNotebookName(note)} · ` : '';
     return `<option value="${escapeHtml(note.id)}">${noteIndex + 1}. ${escapeHtml(prefix + (note.title || 'Untitled'))}</option>`;
   }).join('');
-  $('notebook-note-select').value = state.selectedNoteId || '';
+  $('notebook-note-select').value = selectedNoteId || '';
 }
 
 function navigateNotebookNote(direction) {
-  if (state.editingNoteId) return;
-  const notebook = filteredNotesForNotebook(state.activeNotebookKey);
-  const index = notebook.findIndex(note => note.id === state.selectedNoteId);
+  if (editingNoteId) return;
+  const notebook = filteredNotesForNotebook(activeNotebookKey);
+  const index = notebook.findIndex(note => note.id === selectedNoteId);
   const next = notebook[index + direction];
   if (next) selectNote(next.id);
+}
+
+function cleanNoteBody(value) {
+  return cleanMarkdownBody(value);
 }
 
 function normalizeNoteTags(value) {
@@ -228,14 +249,18 @@ function noteHeadings(markdown) {
   });
 }
 
-function renderNoteDetail() {
-  const note = state.notes.find(item => item.id === state.selectedNoteId);
+function slugify(value) {
+  return String(value || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'note-section';
+}
+
+export function renderNoteDetail() {
+  const note = notes.find(item => item.id === selectedNoteId);
   const detail = $('note-detail');
   releaseFitPaginator(detail.querySelector('.markdown-body'));
   $('note-editor-empty').classList.toggle('hidden', Boolean(note));
   if (!note) {
-    $('note-editor-empty').querySelector('strong').textContent = state.notes.length ? 'No matching notes' : 'No notes yet';
-    $('note-editor-empty').querySelector('span:last-child').textContent = state.notes.length
+    $('note-editor-empty').querySelector('strong').textContent = notes.length ? 'No matching notes' : 'No notes yet';
+    $('note-editor-empty').querySelector('span:last-child').textContent = notes.length
       ? 'Try another search or create a note.'
       : 'Create a note or generate one from a document.';
   }
@@ -267,39 +292,40 @@ function renderNoteDetail() {
     <div class="note-detail-body markdown-body">${renderMarkdown(note.body) || '<p class="hint">This note is empty. Edit it to add content.</p>'}</div>
   `;
   bindMarkdownCodeButtons(detail);
+  renderMathInElementSafe(detail);
   detail.querySelector('[data-note-edit]').addEventListener('click', () => openNoteForm(note.id));
   detail.querySelector('[data-note-pin]').addEventListener('click', async () => {
     note.pinned = !note.pinned;
     note.updatedAt = Date.now();
-    await idbSet('notes', state.notes);
+    await idbSet('notes', notes);
     renderNotes();
   });
   detail.querySelector('[data-note-cards]').addEventListener('click', () => makeFlashcardsFromNote(note.id));
-  detail.querySelector('[data-note-quiz]').addEventListener('click', () => emit('quiz:from-note', note.id));
+  detail.querySelector('[data-note-quiz]').addEventListener('click', () => quizFromNote(note.id));
   detail.querySelector('[data-note-tutor]').addEventListener('click', () => askTutorAboutNote(note.id));
   detail.querySelector('[data-note-export]').addEventListener('click', () => exportNoteMarkdown(note));
   detail.querySelector('[data-note-json]').addEventListener('click', () => downloadJSON(note, `${safeFileName(note.title || 'note')}.json`));
   detail.querySelector('[data-note-delete]').addEventListener('click', () => deleteNoteWithUndo(note.id));
 }
 
-async function selectNote(id, notebookKey = null) {
-  const note = state.notes.find(item => item.id === id);
+export async function selectNote(id, notebookKey = null) {
+  const note = notes.find(item => item.id === id);
   if (!note) return;
-  const targetNotebookKey = notebookKey || state.activeNotebookKey || noteNotebookKey(note);
-  if (state.editingNoteId && state.editingNoteId !== id) {
+  const targetNotebookKey = notebookKey || activeNotebookKey || noteNotebookKey(note);
+  if (editingNoteId && editingNoteId !== id) {
     await saveNote();
-    state.editingNoteId = null;
+    editingNoteId = null;
   }
-  state.activeNotebookKey = targetNotebookKey;
-  state.selectedNoteId = id;
+  activeNotebookKey = targetNotebookKey;
+  selectedNoteId = id;
   persistNotesReaderPosition();
   $('note-form').classList.add('hidden');
   renderNotes();
 }
 
 function renderNotePreview() {
-  if (!state.editingNoteId) return;
-  const note = state.notes.find(item => item.id === state.editingNoteId);
+  if (!editingNoteId) return;
+  const note = notes.find(item => item.id === editingNoteId);
   if (!note) return;
   note.title = $('note-title').value.trim();
   note.tag = $('note-tag').value.trim();
@@ -307,26 +333,26 @@ function renderNotePreview() {
   note.tags = normalizeNoteTags($('note-tags-input').value);
   note.body = cleanNoteBody($('note-body').value);
   note.updatedAt = Date.now();
-  if (state.activeNotebookKey !== 'pinned') state.activeNotebookKey = noteNotebookKey(note);
+  if (activeNotebookKey !== 'pinned') activeNotebookKey = noteNotebookKey(note);
   $('note-save-status').textContent = 'Unsaved changes';
-  clearTimeout(state.noteAutosaveTimer);
-  state.noteAutosaveTimer = setTimeout(saveNote, 650);
+  clearTimeout(noteAutosaveTimer);
+  noteAutosaveTimer = setTimeout(saveNote, 650);
 }
 
 function openNoteForm(id) {
-  let note = state.notes.find(item => item.id === id);
+  let note = notes.find(item => item.id === id);
   if (!note) {
     const now = Date.now();
-    const defaultTag = state.activeNotebookKey === 'pinned'
-      ? state.notes.find(item => item.id === state.selectedNoteId)?.tag || ''
-      : state.notes.find(item => noteNotebookKey(item) === state.activeNotebookKey)?.tag || '';
+    const defaultTag = activeNotebookKey === 'pinned'
+      ? notes.find(item => item.id === selectedNoteId)?.tag || ''
+      : notes.find(item => noteNotebookKey(item) === activeNotebookKey)?.tag || '';
     note = { id: uid(), title: '', tag: defaultTag, unit: '', tags: [], body: '', aiGenerated: false, createdAt: now, updatedAt: now };
-    state.notes.push(note);
+    notes.push(note);
   }
-  state.selectedNoteId = note.id;
-  if (state.activeNotebookKey !== 'pinned') state.activeNotebookKey = noteNotebookKey(note);
+  selectedNoteId = note.id;
+  if (activeNotebookKey !== 'pinned') activeNotebookKey = noteNotebookKey(note);
   persistNotesReaderPosition();
-  state.editingNoteId = note.id;
+  editingNoteId = note.id;
   $('note-form').classList.remove('hidden');
   $('note-detail').classList.add('hidden');
   $('note-title').value = note.title || '';
@@ -340,9 +366,9 @@ function openNoteForm(id) {
 }
 
 async function saveNote() {
-  clearTimeout(state.noteAutosaveTimer);
-  if (!state.editingNoteId) return;
-  const note = state.notes.find(item => item.id === state.editingNoteId);
+  clearTimeout(noteAutosaveTimer);
+  if (!editingNoteId) return;
+  const note = notes.find(item => item.id === editingNoteId);
   if (!note) return;
   note.title = $('note-title').value.trim();
   note.tag = $('note-tag').value.trim();
@@ -350,9 +376,9 @@ async function saveNote() {
   note.tags = normalizeNoteTags($('note-tags-input').value);
   note.body = cleanNoteBody($('note-body').value);
   note.updatedAt = Date.now();
-  if (state.activeNotebookKey !== 'pinned') state.activeNotebookKey = noteNotebookKey(note);
+  if (activeNotebookKey !== 'pinned') activeNotebookKey = noteNotebookKey(note);
   persistNotesReaderPosition();
-  await idbSet('notes', state.notes);
+  await idbSet('notes', notes);
   $('note-save-status').textContent = 'Saved';
   updateStudyMaterialIndex();
   renderTaxonomy();
@@ -364,32 +390,43 @@ function renderNoteListOnly() {
 }
 
 function closeNoteForm() {
-  if (state.editingNoteId) saveNote();
+  if (editingNoteId) saveNote();
   $('note-form').classList.add('hidden');
-  state.editingNoteId = null;
+  editingNoteId = null;
   renderNotes();
 }
 
 async function backToNotebooks() {
-  if (state.editingNoteId) {
+  if (editingNoteId) {
     await saveNote();
-    state.editingNoteId = null;
+    editingNoteId = null;
     $('note-form').classList.add('hidden');
   }
-  state.activeNotebookKey = '';
+  activeNotebookKey = '';
   persistNotesReaderPosition();
   renderNotes();
 }
 
+function safeFileName(value) {
+  return String(value).trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').slice(0, 80) || 'note';
+}
 
 function exportNoteMarkdown(note) {
   const content = `# ${note.title || 'Untitled note'}\n\n${note.body || ''}\n`;
   downloadText(content, `${safeFileName(note.title || 'note')}.md`, 'text/markdown');
 }
 
+function downloadText(content, name, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 async function deleteNoteWithUndo(id) {
-  const note = state.notes.find(item => item.id === id);
+  const note = notes.find(item => item.id === id);
   if (!note) return;
   const confirmed = await confirmDeletion({
     title: `Delete note "${note.title || 'Untitled note'}"?`,
@@ -397,49 +434,30 @@ async function deleteNoteWithUndo(id) {
     affected: 'Flashcards or quiz results created from this note are not changed.'
   });
   if (!confirmed) return;
-  state.selectedNoteId = state.notes.filter(item => item.id !== id).sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0]?.id || null;
+  selectedNoteId = notes.filter(item => item.id !== id).sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))[0]?.id || null;
   await softDeleteRecords([{ collection: 'notes', ids: [id] }], 'Note deleted.');
 }
 
-async function makeFlashcardsFromNote(id) {
-  const note = state.notes.find(item => item.id === id);
+function makeFlashcardsFromNote(id) {
+  const note = notes.find(item => item.id === id);
   if (!note?.body.trim()) return;
-  setStatus('notes-ai-status', 'Generating flashcards from note...');
-  try {
-    const data = await callAI('/api/generate-flashcards', { document: {
-      title: note.title || 'Study note', course: note.tag || 'General',
-      unit: note.unit || 'General', text: truncateText(note.body, 14000)
-    } });
-    const generated = Array.isArray(data.cards) ? data.cards : [];
-    const records = generated.filter(card => card && typeof card.front === 'string' && typeof card.back === 'string')
-      .map(card => ({
-        front: card.front.trim(), back: card.back.trim(),
-        subject: note.tag || '', unit: note.unit || '',
-        format: ['basic', 'definition', 'fill_blank'].includes(card.format) ? card.format : 'basic',
-        aiGenerated: true, sourceNoteId: note.id, sourceNoteTitle: note.title || 'Study note',
-        mastered: false
-      }));
-    await new Promise((resolve, reject) => {
-      emit('flashcards:create-from-note', {
-        records,
-        noteTitle: note.title,
-        onComplete: resolve,
-        onError: reject
-      });
-    });
-  } catch (error) {
-    setStatus('notes-ai-status', error.message || 'Could not generate flashcards.');
-  }
+  emit('notes:make-flashcards', { note });
+}
+
+function quizFromNote(id) {
+  const note = notes.find(item => item.id === id);
+  if (!note?.body.trim()) return;
+  emit('notes:make-quiz', { note });
 }
 
 function askTutorAboutNote(id) {
-  const note = state.notes.find(item => item.id === id);
+  const note = notes.find(item => item.id === id);
   if (!note) return;
-  emit('tutor:ask-about-note', { note });
+  emit('notes:ask-tutor', { note });
 }
 
 async function generateNotesFromDocument() {
-  const doc = state.documents.find(d => d.id === $('notes-doc-select').value);
+  const doc = getDocuments().find(d => d.id === $('notes-doc-select').value);
   if (!doc) return setStatus('notes-ai-status', 'Upload a document first. (No document selected)');
 
   setStatus('notes-ai-status', 'Generating notes...');
@@ -454,7 +472,7 @@ async function generateNotesFromDocument() {
       typeof data.body === 'string' && data.body.trim() ? `## Detailed notes\n${cleanNoteBody(data.body).trim()}` : ''
     ].filter(Boolean);
     if (!bodyParts.length) throw new Error('The AI returned an empty note. Try again with a document that has more study content.');
-    state.notes.push({
+    notes.push({
       id: uid(),
       title: typeof data.title === 'string' && data.title.trim() ? data.title.trim() : `${doc.title} notes`,
       tag: doc.course,
@@ -466,8 +484,8 @@ async function generateNotesFromDocument() {
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
-    state.selectedNoteId = state.notes.at(-1).id;
-    await idbSet('notes', state.notes);
+    selectedNoteId = notes.at(-1).id;
+    await idbSet('notes', notes);
     setStatus('notes-ai-status', 'AI note added.');
     renderEverything();
   } catch (err) {
@@ -477,21 +495,18 @@ async function generateNotesFromDocument() {
   }
 }
 
-export async function cleanupStoredNotes() {
-  if (await idbGet(NOTE_CLEANUP_KEY) !== 1) {
-    state.notes = state.notes.map(note => ({ ...note, body: cleanNoteBody(note.body) }));
-    await idbSet('notes', state.notes);
+
+export async function initializeNoteCleanup() {
+  if (await dependencies.idbGet(NOTE_CLEANUP_KEY) !== 1) {
+    const cleanedNotes = notes.map(note => ({ ...note, body: cleanNoteBody(note.body) }));
+    notes.splice(0, notes.length, ...cleanedNotes);
+    await idbSet('notes', notes);
     await idbSet(NOTE_CLEANUP_KEY, 1);
   }
 }
 
-export function init(deps = {}) {
-  callAI = deps.callAI || callAI;
-  aiDocumentPayload = deps.aiDocumentPayload || aiDocumentPayload;
-  renderEverything = deps.renderEverything || renderEverything;
-  updateStudyMaterialIndex = deps.updateStudyMaterialIndex || updateStudyMaterialIndex;
-  renderTaxonomy = deps.renderTaxonomy || renderTaxonomy;
-
+export function init(deps) {
+  dependencies = deps;
   $('new-note-btn').addEventListener('click', () => openNoteForm(null));
   $('cancel-note-btn').addEventListener('click', closeNoteForm);
   $('save-note-btn').addEventListener('click', saveNote);
@@ -507,9 +522,9 @@ export function init(deps = {}) {
   $('notes-next-btn').addEventListener('click', () => navigateNotebookNote(1));
   $('notebook-note-select').addEventListener('change', event => selectNote(event.target.value));
   document.addEventListener('keydown', event => {
-    if (!state.activeNotebookKey
+    if (!activeNotebookKey
       || $('notes-workspace').classList.contains('hidden')
-      || state.editingNoteId
+      || editingNoteId
       || document.querySelector('dialog[open]')) return;
     if (event.target instanceof Element
       && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
@@ -525,16 +540,46 @@ export function init(deps = {}) {
     }
   });
   $('generate-notes-btn').addEventListener('click', generateNotesFromDocument);
-  $('export-notes-btn').addEventListener('click', () => downloadJSON(state.notes, 'margin-notes.json'));
+  $('export-notes-btn').addEventListener('click', () => downloadJSON(notes, 'margin-notes.json'));
   $('import-notes-btn').addEventListener('click', () => $('import-notes-file').click());
-  $('import-notes-file').addEventListener('change', e => readJSONFile(e.target.files[0], data => {
+  $('import-notes-file').addEventListener('change', event => readJSONFile(event.target.files[0], data => {
     if (Array.isArray(data)) {
-      data.forEach(n => state.notes.push({ id: uid(), title: n.title || '', tag: n.tag || '', unit: n.unit || '', tags: normalizeNoteTags(n.tags), body: cleanNoteBody(n.body), aiGenerated: !!n.aiGenerated, createdAt: n.createdAt || Date.now(), updatedAt: n.updatedAt || Date.now() }));
-      state.selectedNoteId = state.notes.at(-1)?.id || state.selectedNoteId;
-      if (state.selectedNoteId) state.activeNotebookKey = noteNotebookKey(state.notes.find(note => note.id === state.selectedNoteId));
+      data.forEach(note => notes.push({
+        id: uid(),
+        title: note.title || '',
+        tag: note.tag || '',
+        unit: note.unit || '',
+        tags: normalizeNoteTags(note.tags),
+        body: cleanNoteBody(note.body),
+        aiGenerated: !!note.aiGenerated,
+        createdAt: note.createdAt || Date.now(),
+        updatedAt: note.updatedAt || Date.now()
+      }));
+      selectedNoteId = notes.at(-1)?.id || selectedNoteId;
+      if (selectedNoteId) activeNotebookKey = noteNotebookKey(notes.find(note => note.id === selectedNoteId));
       persistNotesReaderPosition();
-      idbSet('notes', state.notes);
+      idbSet('notes', notes);
       renderEverything();
     }
   }));
+  on('tutor:save-note', async ({ question, text }) => {
+    const now = Date.now();
+    notes.push({
+      id: uid(),
+      title: (question || 'Tutor reply').slice(0, 60),
+      tag: '',
+      unit: '',
+      tags: ['Tutor'],
+      body: cleanNoteBody(text),
+      aiGenerated: false,
+      createdAt: now,
+      updatedAt: now
+    });
+    selectedNoteId = notes.at(-1).id;
+    activeNotebookKey = noteNotebookKey(notes.at(-1));
+    persistNotesReaderPosition();
+    await idbSet('notes', notes);
+    renderEverything();
+    dependencies.setChatRequestStatus('Saved to notes.');
+  });
 }

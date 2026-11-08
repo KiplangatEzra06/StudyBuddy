@@ -1,17 +1,11 @@
 const listeners = new Map();
 
-export function on(event, handler) {
-  if (!listeners.has(event)) listeners.set(event, new Set());
-  listeners.get(event).add(handler);
-  return () => off(event, handler);
+export function on(eventName, listener) {
+  if (!listeners.has(eventName)) listeners.set(eventName, new Set());
+  listeners.get(eventName).add(listener);
+  return () => listeners.get(eventName)?.delete(listener);
 }
 
-export function off(event, handler) {
-  listeners.get(event)?.delete(handler);
-}
-
-export function emit(event, payload) {
-  const handlers = listeners.get(event);
-  if (!handlers) return;
-  for (const handler of [...handlers]) handler(payload);
+export function emit(eventName, detail) {
+  listeners.get(eventName)?.forEach(listener => listener(detail));
 }

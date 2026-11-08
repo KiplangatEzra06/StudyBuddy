@@ -1,0 +1,204 @@
+
+
+    .timer-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .timer-settings {
+      display: flex;
+      gap: 18px;
+      justify-content: center;
+      flex-wrap: wrap;
+      font-size: 12px;
+      color: var(--color-text-muted);
+    }
+
+    .timer-settings label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: center;
+    }
+
+    #panel-timer .timer-wrap {
+      display: flex;
+      min-height: 0;
+      flex: 1 1 0;
+      flex-direction: column;
+      justify-content: center;
+      gap: 7px;
+      padding: 0;
+    }
+
+    #panel-timer .ring-wrap {
+      width: clamp(115px, 22vh, 185px);
+      height: clamp(115px, 22vh, 185px);
+    }
+
+    #panel-timer .ring-wrap svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    #panel-timer .ring-time {
+      font-size: clamp(24px, 5vh, 38px);
+    }
+
+    #panel-timer .timer-settings {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    #panel-timer .timer-alert-settings {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 4px 10px;
+    }
+
+    .timer-session-count {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      color: var(--color-text-muted);
+      font-size: 13px;
+    }
+
+    .timer-session-count strong {
+      color: var(--color-accent);
+      font: 600 22px Georgia, serif;
+    }
+
+    .timer-alert-settings {
+      display: grid;
+      gap: 9px;
+      padding: 14px 16px;
+      border: 1px solid rgba(104, 83, 141, 0.12);
+      border-radius: var(--radius-md);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 243, 252, 0.8));
+      color: var(--color-text-muted);
+      font-size: 12px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    }
+
+    .timer-alert-settings label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .timer-alert-settings input {
+      accent-color: var(--color-accent);
+    }
+
+    @media (max-width: 520px) {
+
+      .timer-alert-settings {
+        width: 100%;
+      }}
+
+    #panel-timer > .panel-title {
+      margin: 0 0 4px;
+      color: var(--color-text);
+      font: 600 clamp(24px, 3vw, 32px)/1.2 var(--font-display);
+    }
+
+    #panel-timer > .panel-sub {
+      max-width: 680px;
+      margin: 0 0 10px;
+      color: var(--color-text-muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    #panel-timer > .toolbar {
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    #panel-timer > .toolbar select {
+      min-width: min(100%, 210px);
+      min-height: 40px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface);
+      color: var(--color-text);
+    }
+
+    #panel-timer .timer-session-count {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 8px 14px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-pill);
+      background: var(--color-surface-soft);
+      color: var(--color-text-muted);
+      font-size: 12px;
+    }
+
+    #panel-timer .timer-session-count strong {
+      color: var(--color-violet);
+      font-family: var(--font-display);
+    }
+
+    #panel-timer .ring-wrap {
+      width: min(220px, 52vw);
+      height: min(220px, 52vw);
+      padding: 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 50%;
+      background: var(--color-surface);
+      box-shadow: var(--shadow-soft);
+    }
+
+    #panel-timer .ring-wrap svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    #panel-timer .ring-time {
+      color: var(--color-text);
+      font: 650 clamp(28px, 5vw, 38px)/1 var(--font-sans);
+      font-variant-numeric: tabular-nums;
+    }
+
+    #panel-timer .ring-mode {
+      color: var(--color-text-muted);
+    }
+
+    #panel-timer .timer-settings {
+      gap: 10px;
+    }
+
+    #panel-timer .timer-settings label {
+      min-width: 94px;
+      padding: 10px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+    }
+
+    #panel-timer .timer-settings input {
+      min-height: 36px;
+      border-color: var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface-soft);
+      color: var(--color-text);
+    }
+
+    #panel-timer .timer-alert-settings {
+      width: min(100%, 480px);
+      border-color: var(--color-border);
+      border-radius: var(--radius-md);
+      background: var(--color-surface-soft);
+      color: var(--color-text-muted);
+      box-shadow: none;
+    }

@@ -1,8 +1,12 @@
-import { state } from './state.js';
-import { $, escapeHtml } from './dom.js';
-import { slugify } from './format.js';
-
-export function cleanNoteBody(value) {
+const $ = id => document.getElementById(id);
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[character]));
+export function cleanMarkdownBody(value) {
   let body = String(value || '')
     .replace(/\\r\\n/g, '\n')
     .replace(/\\n/g, '\n')
@@ -15,8 +19,11 @@ export function cleanNoteBody(value) {
   return body.trim();
 }
 
+function slugify(value) {
+  return String(value || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'note-section';
+}
 export function renderMarkdown(markdown) {
-  const lines = cleanNoteBody(markdown).split('\n');
+  const lines = cleanMarkdownBody(markdown).split('\n');
   const blocks = [];
   let paragraph = [];
   let list = [];
@@ -206,6 +213,8 @@ export function bindMarkdownCodeButtons(container, { truncateLongCode = true } =
   });
 }
 
+let codeDialogPages = [];
+let codeDialogPageIndex = 0;
 
 export function openCodeDialog(code) {
   const dialog = $('code-dialog');
@@ -220,25 +229,25 @@ export function openCodeDialog(code) {
     return pieces;
   });
   const linesPerPage = Math.max(4, Math.floor((dialog.clientHeight - 130) / 20));
-  state.codeDialogPages = [];
+  codeDialogPages = [];
   for (let index = 0; index < visualLines.length; index += linesPerPage) {
-    state.codeDialogPages.push(visualLines.slice(index, index + linesPerPage).join('\n'));
+    codeDialogPages.push(visualLines.slice(index, index + linesPerPage).join('\n'));
   }
-  state.codeDialogPageIndex = 0;
+  codeDialogPageIndex = 0;
   renderCodeDialogPage();
 }
 
 export function renderCodeDialogPage() {
-  $('code-dialog-content').textContent = state.codeDialogPages[state.codeDialogPageIndex] || '';
+  $('code-dialog-content').textContent = codeDialogPages[codeDialogPageIndex] || '';
   const controls = $('code-dialog-controls');
-  const pageCount = Math.max(1, state.codeDialogPages.length);
-  controls.innerHTML = `<button type="button" class="btn btn-sm" data-code-prev ${state.codeDialogPageIndex === 0 ? 'disabled' : ''}>Previous</button><span aria-live="polite">Part ${state.codeDialogPageIndex + 1} of ${pageCount}</span><button type="button" class="btn btn-sm" data-code-next ${state.codeDialogPageIndex >= pageCount - 1 ? 'disabled' : ''}>Next</button>`;
+  const pageCount = Math.max(1, codeDialogPages.length);
+  controls.innerHTML = `<button type="button" class="btn btn-sm" data-code-prev ${codeDialogPageIndex === 0 ? 'disabled' : ''}>Previous</button><span aria-live="polite">Part ${codeDialogPageIndex + 1} of ${pageCount}</span><button type="button" class="btn btn-sm" data-code-next ${codeDialogPageIndex >= pageCount - 1 ? 'disabled' : ''}>Next</button>`;
   controls.querySelector('[data-code-prev]').addEventListener('click', () => {
-    state.codeDialogPageIndex--;
+    codeDialogPageIndex--;
     renderCodeDialogPage();
   });
   controls.querySelector('[data-code-next]').addEventListener('click', () => {
-    state.codeDialogPageIndex++;
+    codeDialogPageIndex++;
     renderCodeDialogPage();
   });
 }

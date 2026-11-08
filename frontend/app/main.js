@@ -1,1 +1,1 @@
-import './runtime.js';
+import './bootstrap.js';

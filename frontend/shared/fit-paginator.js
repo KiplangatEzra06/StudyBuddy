@@ -1,5 +1,34 @@
 import { state } from './state.js';
 
+let renderCalendar = () => {};
+
+export function init(deps = {}) {
+  renderCalendar = deps.renderCalendar || renderCalendar;
+  window.addEventListener('resize', () => {
+    refreshFitPaginators();
+    if (!$('panel-calendar').classList.contains('hidden')) renderCalendar();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey
+      || event.target.matches('input, textarea, select, [contenteditable="true"]')) return;
+    const active = document.activeElement;
+    const activeContainer = active?.closest('[data-fit-paginate]')
+      || (active?.classList.contains('fit-page-controls') ? active.previousElementSibling : null);
+    const paginator = activeContainer?.nextElementSibling;
+    if (!paginator?.classList.contains('fit-page-controls')) return;
+    const next = ['ArrowRight', 'PageDown'].includes(event.key);
+    const previous = ['ArrowLeft', 'PageUp'].includes(event.key);
+    if (!next && !previous) return;
+    const button = paginator.querySelector(next ? '[data-fit-next]' : '[data-fit-prev]');
+    if (!button.disabled) {
+      event.preventDefault();
+      button.click();
+    }
+  });
+}
+
+const $ = id => document.getElementById(id);
+
 export function paginateToFit(container, options = {}) {
   if (!container) return;
   const key = container.id || container;

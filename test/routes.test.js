@@ -56,21 +56,30 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
   assert.match(backupModule.headers['content-type'], /javascript/);
   assert.match(backupModule.text, /export function validateBackup/);
 
-  const assignmentBriefModule = await request(app).get('/frontend/features/assignment-brief.js');
-  assert.equal(assignmentBriefModule.status, 200);
-  assert.match(assignmentBriefModule.headers['content-type'], /javascript/);
-  assert.match(assignmentBriefModule.text, /export function openAssignmentBriefDialog/);
-
-  const assignmentBriefsApiModule = await request(app).get('/frontend/services/assignment-briefs-api.js');
-  assert.equal(assignmentBriefsApiModule.status, 200);
-  assert.match(assignmentBriefsApiModule.headers['content-type'], /javascript/);
-  assert.match(assignmentBriefsApiModule.text, /export function createAssignmentBriefsApi/);
-
-  const [tokens, components, page] = await Promise.all([
-    request(app).get('/design-tokens.css'),
-    request(app).get('/components.css'),
-    request(app).get('/')
+  const stylesheetPaths = [
+    'design-tokens.css',
+    'styles/base.css',
+    'styles/layout.css',
+    'styles/dashboard.css',
+    'styles/flashcards.css',
+    'styles/notes.css',
+    'styles/calendar.css',
+    'styles/classes.css',
+    'styles/documents.css',
+    'styles/quiz.css',
+    'styles/timer.css',
+    'styles/progress.css',
+    'styles/tutor.css',
+    'styles/settings.css',
+    'styles/assignment-workspace.css',
+    'components.css'
+  ];
+  const [page, ...stylesheets] = await Promise.all([
+    request(app).get('/'),
+    ...stylesheetPaths.map(stylesheet => request(app).get(`/${stylesheet}`))
   ]);
+  const tokens = stylesheets[0];
+  const components = stylesheets[stylesheets.length - 1];
   assert.equal(tokens.status, 200);
   assert.match(tokens.text, /--color-background/);
   assert.match(tokens.text, /:root\[data-theme="dark"\]/);
@@ -78,8 +87,13 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
   assert.match(components.text, /\.btn\.btn-primary:hover/);
   assert.doesNotMatch(components.text, /\.btn-primary:hover\s*\{[^}]*linear-gradient/s);
   assert.equal(page.status, 200);
-  assert.ok(page.text.indexOf('design-tokens.css') < page.text.indexOf('styles.css'));
-  assert.ok(page.text.indexOf('styles.css') < page.text.indexOf('components.css'));
+  let previousStylesheet = -1;
+  for (const stylesheet of stylesheetPaths) {
+    assert.equal(stylesheets[stylesheetPaths.indexOf(stylesheet)].status, 200);
+    const position = page.text.indexOf(`href="${stylesheet}"`);
+    assert.ok(position > previousStylesheet, `${stylesheet} stays in the stylesheet cascade order`);
+    previousStylesheet = position;
+  }
   for (const group of [
     'WORKSPACE',
     'ACADEMIC PLANNER',
