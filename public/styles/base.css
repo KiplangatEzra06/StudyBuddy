@@ -1623,6 +1623,44 @@
     @media (prefers-reduced-motion: reduce) {
     }
 
+    .scroll-region {
+      min-height: 0;
+      overscroll-behavior: contain;
+    }
+
+    .scroll-region-y {
+      overflow-x: hidden;
+      overflow-y: auto;
+      scrollbar-color: var(--color-violet, #7054d8) var(--color-violet-soft, #eee9ff);
+      scrollbar-width: thin;
+    }
+
+    .scroll-region-y::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    .scroll-region-y::-webkit-scrollbar-thumb {
+      border: 2px solid transparent;
+      border-radius: 999px;
+      background: var(--color-violet, #7054d8);
+      background-clip: padding-box;
+    }
+
+    .scroll-region-y::-webkit-scrollbar-track {
+      background: var(--color-violet-soft, #eee9ff);
+    }
+
+    .scroll-sticky-chrome {
+      position: sticky;
+      top: 0;
+      z-index: 4;
+    }
+
+    .scroll-sticky-chrome.is-scrolled {
+      box-shadow: 0 8px 18px rgba(36, 33, 55, 0.1);
+    }
+
     html,
     body {
       width: 100%;
