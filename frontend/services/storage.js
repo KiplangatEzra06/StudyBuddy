@@ -28,6 +28,24 @@ export async function idbSet(key, value) {
   }
 }
 
+export async function idbSetMany(entries) {
+  try {
+    const db = await openDB();
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE, 'readwrite');
+      entries.forEach(([key, value]) => {
+        transaction.objectStore(STORE).put({ key, value });
+      });
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } catch (error) {
+    console.warn('Could not save records', error);
+    return false;
+  }
+}
+
 export async function idbGet(key) {
   try {
     const db = await openDB();

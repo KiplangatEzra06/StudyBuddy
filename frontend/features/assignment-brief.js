@@ -314,11 +314,11 @@ export function openAssignmentBriefDialog(assignmentId = null) {
   const assignment = state.assignments.find(item => item.id === id);
   activeAssignmentId = assignment?.id || null;
   resetBriefDialogForm();
-  $('assignment-brief-title').textContent = assignment?.briefDocumentId ? 'Replace assignment brief' : 'Upload assignment brief';
-  $('assignment-brief-save').textContent = assignment?.briefDocumentId ? 'Upload & replace brief' : 'Upload & save brief';
+  $('assignment-brief-title').textContent = assignment?.briefDocumentId ? 'Replace assignment file' : 'Attach assignment file';
+  $('assignment-brief-save').textContent = assignment?.briefDocumentId ? 'Replace & save file' : 'Attach & save file';
   $('assignment-brief-remove').classList.toggle('hidden', !assignment?.briefDocumentId);
   if (!assignment) {
-    setStatus('assignment-brief-status', 'Save the assignment before uploading a brief.');
+    setStatus('assignment-brief-status', 'Save the assignment before attaching a file.');
   } else if (assignment.briefDocumentId) {
     setStatus(
       'assignment-brief-status',
@@ -334,7 +334,7 @@ async function saveAssignmentBrief() {
   if (busy || !briefsApi) return;
   const assignment = state.assignments.find(item => item.id === activeAssignmentId);
   if (!assignment) {
-    setStatus('assignment-brief-status', 'Save the assignment before uploading a brief.');
+    setStatus('assignment-brief-status', 'Save the assignment before attaching a file.');
     return;
   }
 
@@ -385,7 +385,7 @@ async function saveAssignmentBrief() {
         return;
       }
       setProgress(true, 35);
-      setStatus('assignment-brief-status', 'Validating brief...');
+      setStatus('assignment-brief-status', 'Checking file with the server (this can take a moment if it is waking up)...');
       const validated = await briefsApi.validateBriefUpload({
         assignmentId: assignment.id,
         documentId,
@@ -396,7 +396,7 @@ async function saveAssignmentBrief() {
       fileSize = validated.fileSize;
       sourceType = 'file';
       setProgress(true, 70);
-      setStatus('assignment-brief-status', 'Saving brief...');
+      setStatus('assignment-brief-status', 'Saving file...');
     }
 
     const result = await briefsApi.saveBrief(assignment.id, {
@@ -411,7 +411,7 @@ async function saveAssignmentBrief() {
     applyBriefFields(assignment, result.brief);
     await persistAssignments();
     setProgress(true, 100);
-    setStatus('assignment-brief-status', 'Brief saved.');
+    setStatus('assignment-brief-status', 'File attached.');
     $('assignment-brief-dialog').close();
   } catch (error) {
     setStatus('assignment-brief-status', error.message || 'Could not save the assignment brief.');
@@ -483,9 +483,5 @@ export function init(deps = {}) {
     activeAssignmentId = null;
     resetBriefDialogForm();
     setBusy(false);
-  });
-
-  $('assignment-open-brief-btn')?.addEventListener('click', () => {
-    openAssignmentBriefDialog(state.editingAssignmentId);
   });
 }

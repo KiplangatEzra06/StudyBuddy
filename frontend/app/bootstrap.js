@@ -1,5 +1,5 @@
 import { createApiClient } from '../services/api.js';
-import { idbGet, idbSet } from '../services/storage.js';
+import { idbGet, idbSet, idbSetMany } from '../services/storage.js';
 import { createAssignmentBriefsApi } from '../services/assignment-briefs-api.js';
 import {
   init as initAssignmentBrief,
@@ -18,7 +18,7 @@ import { init as initTutor, loadTutorConversations, persistTutorConversations, r
 import { addMsg, addAssistantMsg, init as initTutorSources, renderTutorScopeOptions, updateStudyMaterialIndex, retrieveStudyReferences } from '../features/tutor-sources.js';
 import { init as initFlashcards, flashcardApi, importFlashcardRecords, loadFlashcardsFromServer, renderCardFilters, renderCardList, renderDeckBar, renderFlashcardSourceOptions, refreshFlashcardData, renderFlashcardDeckSelectors, renderFlashcardDeckSummary, setFlashcardsView, updateFlashcardDueBadge, loadFlashcardSourceText } from '../features/flashcards.js';
 import { init as initLearning, loadLearningReview, loadLearningStats } from '../features/learning.js';
-import { init as initNotes, initializeNoteCleanup, renderNotes, selectNote } from '../features/notes.js';
+import { init as initNotes, initializeNoteCleanup, initializeNotebooks, renderNotes, selectNote } from '../features/notes.js';
 import { init as initSettings } from '../features/settings.js';
 import { init as initNavigation, activatePage } from './navigation.js';
 import { init as initAuth, showLoginScreen } from './auth.js';
@@ -234,6 +234,7 @@ function initializeFeatures() {
   initNotes({
     uid,
     idbSet,
+    idbSetMany,
     callAI,
     aiDocumentPayload,
     truncateText,
@@ -301,6 +302,7 @@ async function loadData() {
   state.documents = await idbGet('documents') || [];
   state.cards.splice(0, state.cards.length);
   state.notes.splice(0, state.notes.length, ...(await idbGet('notes') || []));
+  await initializeNotebooks();
   state.quizResults = await idbGet('quizResults') || [];
   state.timerSessions = await idbGet('timerSessions') || [];
   if (state.timerSessions.some(session => !session.id)) {

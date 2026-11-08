@@ -311,6 +311,7 @@
                   <h2 class="settings-heading">Assignments</h2>
                   <button class="classes-add-button" id="classes-add-assignment" type="button" aria-label="Add assignment" title="Add assignment">+</button>
                 </div>
+                <p class="status" id="assignment-save-status" role="status" aria-live="polite"></p>
                 <div class="item-list" id="classes-assignment-list" data-fit-paginate data-fit-item-height="100" aria-label="Assignments"></div>
                 <div class="empty-state hidden" id="assignments-empty">No assignments yet. Add one to track a due date.</div>
               </section>
@@ -358,14 +359,14 @@
                   </div>
                   <div class="row dialog-actions">
                     <button class="btn btn-primary" id="save-assignment-btn" type="submit">Save assignment</button>
-                    <button class="btn assignment-brief-action" id="assignment-open-brief-btn" type="button">Upload brief</button>
+                    <button class="btn assignment-brief-action" id="assignment-open-brief-btn" type="button">Attach assignment file</button>
                     <button class="btn" id="cancel-assignment-dialog" type="button">Cancel</button>
                   </div>
                 </form>
               </dialog>
               <dialog class="editor-dialog assignment-brief-dialog" id="assignment-brief-dialog" aria-labelledby="assignment-brief-title">
                 <div class="dialog-header">
-                  <h2 id="assignment-brief-title">Upload assignment brief</h2>
+                  <h2 id="assignment-brief-title">Attach assignment file</h2>
                   <button class="icon-btn dialog-close" id="close-assignment-brief-dialog" type="button" aria-label="Close dialog">×</button>
                 </div>
                 <p class="hint">Brief content is sent to Ollama Cloud when saved for this assignment.</p>
@@ -389,7 +390,7 @@
                 <progress id="assignment-brief-progress" class="assignment-brief-progress hidden" max="100" value="0" aria-label="Brief upload progress"></progress>
                 <p class="status" id="assignment-brief-status" role="status" aria-live="polite"></p>
                 <div class="row dialog-actions">
-                  <button class="btn assignment-brief-action" id="assignment-brief-save" type="button">Upload &amp; save brief</button>
+                  <button class="btn assignment-brief-action" id="assignment-brief-save" type="button">Attach &amp; save file</button>
                   <button class="btn btn-danger hidden" id="assignment-brief-remove" type="button">Remove brief</button>
                   <button class="btn" id="cancel-assignment-brief-dialog" type="button">Cancel</button>
                 </div>
@@ -790,37 +791,59 @@
       </div>
     </section>
 
-    <section class="panel hidden" id="panel-notes">
-      <p class="panel-title">Notes</p>
-      <p class="panel-sub">Write notes manually or generate editable AI notes from a document.</p>
+    <section class="panel hidden scroll-region" id="panel-notes">
+      <p class="panel-title">Your Notes</p>
+      <p class="panel-sub">Your knowledge, organized.</p>
+      <div class="notes-stats" aria-label="Notes overview">
+        <div><span id="notes-stat-total">0</span><span>Notes</span></div>
+        <div><span id="notes-stat-notebooks">0</span><span>Notebooks</span></div>
+        <div><span id="notes-stat-pinned">0</span><span>Pinned</span></div>
+      </div>
       <div class="toolbar">
         <select id="notes-doc-select"></select>
         <button class="btn btn-primary" id="generate-notes-btn">Generate from document</button>
         <span class="status" id="notes-ai-status" role="status" aria-live="polite"></span>
       </div>
-      <div class="toolbar notes-toolbar">
+      <div class="toolbar notes-toolbar scroll-sticky-chrome" id="notes-toolbar">
         <input type="search" id="notes-search" placeholder="Search notes" aria-label="Search notes">
+        <select id="notes-notebook-filter" aria-label="Filter notes by notebook">
+          <option value="all">All notebooks</option>
+        </select>
         <select id="notes-sort" aria-label="Sort notes">
           <option value="recent">Recently edited</option><option value="title">Title</option><option value="course">Course</option>
         </select>
         <button class="btn btn-primary" id="new-note-btn">New note</button>
-        <button class="btn" id="export-notes-btn">Export all notes</button>
-        <button class="btn" id="import-notes-btn">Import notes</button>
+        <details class="notes-overflow-menu">
+          <summary class="btn" aria-label="More note actions">More</summary>
+          <div class="notes-overflow-items scroll-region scroll-region-y">
+            <button type="button" class="btn" id="export-notes-btn">Export all notes</button>
+            <button type="button" class="btn" id="import-notes-btn">Import notes</button>
+          </div>
+        </details>
         <input type="file" id="import-notes-file" accept=".json" class="hidden">
       </div>
       <div class="notes-action-status" id="notes-action-status" role="status" aria-live="polite">
         <span id="notes-action-message"></span><button class="btn btn-sm hidden" type="button" id="note-undo-delete">Undo delete</button>
       </div>
       <div id="notes-notebooks-view">
+        <div class="notes-section-heading">
+          <h2>Notebooks</h2>
+          <button class="btn btn-sm" type="button" data-create-notebook>Create notebook</button>
+        </div>
         <div class="deck-grid" id="notes-notebook-grid" aria-label="Notebooks"></div>
-        <div class="empty-state hidden" id="notes-empty">No notes yet. Click "New note" or generate one from a document.</div>
+        <div class="empty-state hidden" id="notes-empty">No notebooks yet. Create one or generate notes from a document.</div>
+        <section class="notes-recent-section" aria-labelledby="notes-recent-heading">
+          <div class="notes-section-heading"><h2 id="notes-recent-heading">Recently edited</h2></div>
+          <div class="notes-recent-grid" id="notes-recent-grid" aria-label="Recently edited notes"></div>
+        </section>
       </div>
       <div class="notes-search-results hidden" id="notes-search-results">
         <div class="note-grid" id="notes-search-grid" aria-label="Matching notes"></div>
-        <div class="empty-state hidden" id="notes-search-empty">No notes match your search.</div>
+        <div class="empty-state hidden" id="notes-search-empty">No notes match these filters. <button class="btn btn-sm" type="button" id="notes-clear-filters">Clear filters</button></div>
       </div>
-      <div class="notes-reader-nav hidden" id="notes-reader-nav">
+      <div class="notes-reader-nav hidden" id="notes-reader-nav" aria-label="Notebook navigation">
         <button class="btn" type="button" id="notes-back-btn">Back to notebooks</button>
+        <strong class="notes-current-notebook" id="notes-active-notebook-name"></strong>
         <span class="notes-position" id="notes-position" aria-live="polite"></span>
         <label class="notebook-note-picker-wrap">Choose note
           <select id="notebook-note-select" aria-label="Choose a note in this notebook"></select>
@@ -830,33 +853,58 @@
           <button class="btn btn-primary" id="notes-next-btn" type="button">Next</button>
         </div>
       </div>
-      <div class="notes-workspace hidden" id="notes-workspace">
-        <div class="notes-list-pane">
-          <div class="note-grid" id="notebook-note-list" aria-label="Notebook note titles"></div>
+      <div class="notes-workspace hidden" id="notes-workspace" aria-label="Notebook workspace">
+        <div class="notes-list-pane" aria-label="Notes in this notebook">
+          <div class="notes-sidebar-search scroll-sticky-chrome">
+            <label for="notes-sidebar-search">Search notes in this notebook</label>
+            <input id="notes-sidebar-search" type="search" placeholder="Search this notebook">
+          </div>
+          <div class="note-grid scroll-region scroll-region-y" id="notebook-note-list" aria-label="Notebook note titles" tabindex="0"></div>
         </div>
         <section class="notes-editor-pane" id="note-detail-pane" aria-label="Selected note">
           <div class="note-editor-empty hidden" id="note-editor-empty">
             <span aria-hidden="true">✎</span>
             <strong>Choose a note to read or edit</strong>
-            <span>Your formatted preview will appear here.</span>
+            <span id="note-empty-description">Your formatted preview will appear here.</span>
+            <button class="btn btn-primary" type="button" id="note-create-first-btn">Create your first note</button>
           </div>
           <article id="note-detail" class="note-detail hidden"></article>
-          <div class="form-grid hidden" id="note-form">
-            <input type="text" id="note-title" placeholder="Title">
+          <div class="form-grid hidden scroll-region scroll-region-y" id="note-form" role="group" aria-label="Edit note" tabindex="0">
+            <input type="text" id="note-title" placeholder="Title" aria-label="Note title">
             <div class="form-grid note-tags">
-              <input type="text" id="note-tag" list="course-list" placeholder="Course or subject">
-              <input type="text" id="note-unit" list="unit-list" placeholder="Unit">
+              <input type="text" id="note-tag" list="course-list" placeholder="Course or subject" aria-label="Course or subject">
+              <input type="text" id="note-unit" list="unit-list" placeholder="Unit" aria-label="Unit">
             </div>
             <input type="text" id="note-tags-input" class="wide" placeholder="Tags (comma-separated)" aria-label="Note tags, comma-separated">
-            <textarea id="note-body" class="wide" placeholder="Write your note..."></textarea>
+            <textarea id="note-body" class="wide" placeholder="Write your note..." aria-label="Note content"></textarea>
             <div class="note-edit-toolbar wide">
-              <span id="note-save-status" role="status" aria-live="polite">Saved</span>
-              <button class="btn btn-primary" id="save-note-btn" type="button">Save now</button>
-              <button class="btn" id="cancel-note-btn" type="button">Preview</button>
+              <span id="note-save-status" data-state="saved" role="status" aria-live="polite">Saved</span>
+              <button class="btn btn-primary" id="save-note-btn" type="button">Save changes</button>
+              <button class="btn" id="cancel-note-btn" type="button">Cancel</button>
             </div>
           </div>
         </section>
       </div>
+      <button class="btn notes-back-to-top hidden" type="button" id="notes-back-to-top" aria-label="Back to top" title="Back to top">↑ Back to top</button>
+      <dialog class="editor-dialog notes-dialog scroll-region scroll-region-y" id="create-notebook-dialog" aria-labelledby="create-notebook-title">
+        <form id="create-notebook-form">
+          <div class="dialog-header"><h2 id="create-notebook-title">Create notebook</h2><button class="icon-btn dialog-close" type="button" data-close-notebook-dialog aria-label="Close">×</button></div>
+          <label for="create-notebook-name">Notebook name</label>
+          <input id="create-notebook-name" type="text" maxlength="80" required autocomplete="off">
+          <p class="status" id="create-notebook-error" role="status" aria-live="polite"></p>
+          <div class="row"><button class="btn" type="button" data-close-notebook-dialog>Cancel</button><button class="btn btn-primary" type="submit">Create notebook</button></div>
+        </form>
+      </dialog>
+      <dialog class="editor-dialog notes-dialog scroll-region scroll-region-y" id="rename-notebook-dialog" aria-labelledby="rename-notebook-title">
+        <form id="rename-notebook-form">
+          <div class="dialog-header"><h2 id="rename-notebook-title">Rename notebook</h2><button class="icon-btn dialog-close" type="button" data-close-notebook-dialog aria-label="Close">×</button></div>
+          <input id="rename-notebook-id" type="hidden">
+          <label for="rename-notebook-name">Notebook name</label>
+          <input id="rename-notebook-name" type="text" maxlength="80" required autocomplete="off">
+          <p class="status" id="rename-notebook-error" role="status" aria-live="polite"></p>
+          <div class="row"><button class="btn" type="button" data-close-notebook-dialog>Cancel</button><button class="btn btn-primary" type="submit">Save name</button></div>
+        </form>
+      </dialog>
       <dialog class="editor-dialog code-dialog" id="code-dialog" aria-labelledby="code-dialog-title">
         <div class="dialog-header"><h2 id="code-dialog-title">Code block</h2><button class="icon-btn dialog-close" id="code-dialog-close" type="button" aria-label="Close code block">×</button></div>
         <pre><code id="code-dialog-content"></code></pre>
