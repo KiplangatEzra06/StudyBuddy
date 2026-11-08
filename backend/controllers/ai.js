@@ -42,6 +42,9 @@ async function tutor(req, res) {
       role: 'system',
       content: `${prompts.tutorReferences}\n\n<untrusted_reference_material>\n${encodedSourceMaterial}\n</untrusted_reference_material>`
     });
+    if (references.some(reference => reference.type === 'assignment')) {
+      systemMessages.push({ role: 'system', content: prompts.tutorAssignment });
+    }
   }
   const streaming = req.body.stream === true;
   const streamController = streaming ? new AbortController() : null;

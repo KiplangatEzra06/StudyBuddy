@@ -1173,7 +1173,7 @@
 
     #panel-tutor .msg.assistant {
       width: fit-content;
-      max-width: min(82ch, 100%);
+      max-width: min(110ch, 100%);
       min-width: 0;
       box-sizing: border-box;
       overflow: visible;
@@ -1204,8 +1204,8 @@
     }
 
     #panel-tutor .assistant-content table {
-      width: max-content;
-      min-width: 100%;
+      width: 100%;
+      min-width: 0;
       margin: 0;
       border-collapse: collapse;
       table-layout: auto;
@@ -1222,7 +1222,9 @@
       color: var(--color-text);
       text-align: left;
       vertical-align: top;
-      overflow-wrap: break-word;
+      overflow-wrap: anywhere;
+      word-break: normal;
+      min-width: 5rem;
     }
 
     #panel-tutor .assistant-content th:last-child,
@@ -1257,6 +1259,12 @@
       font: .92em/1.35 Consolas, "SFMono-Regular", Menlo, monospace;
       overflow-wrap: anywhere;
       vertical-align: baseline;
+    }
+
+    #panel-tutor .assistant-content td code,
+    #panel-tutor .assistant-content th code {
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
 
     #panel-tutor .markdown-code-block {
@@ -1372,4 +1380,9 @@
 
       #panel-tutor .assistant-content table {
         font-size: 13px;
+      }
+
+      #panel-tutor .assistant-content th,
+      #panel-tutor .assistant-content td {
+        padding: 6px 8px;
       }}
