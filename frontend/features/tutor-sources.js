@@ -19,6 +19,9 @@ export function renderTutorScopeOptions() {
   ].filter(Boolean))].sort((a, b) => a.localeCompare(b));
   courses.forEach(course => options.push(`<option value="course:${dependencies.escapeHtml(course)}">Course: ${dependencies.escapeHtml(course)}</option>`));
   dependencies.getDocuments().forEach(item => options.push(`<option value="document:${dependencies.escapeHtml(item.id)}">Document: ${dependencies.escapeHtml(item.title)}</option>`));
+  dependencies.getAssignments().filter(item => item.briefDocumentId).forEach(item => {
+    options.push(`<option value="assignment:${dependencies.escapeHtml(item.id)}">Assignment: ${dependencies.escapeHtml(item.title || 'Untitled assignment')}</option>`);
+  });
   select.innerHTML = options.join('');
   select.value = [...select.options].some(option => option.value === current) ? current : 'all';
   document.querySelectorAll('select').forEach(dependencies.syncCustomSelect);
@@ -49,12 +52,17 @@ function indexStudyMaterial(type, records) {
       record.title || record.name || record.front || '',
       record.body || record.extractedText || record.back || record.text || '',
       record.score ?? '',
-      record.dueAt || ''
+      record.dueAt || '',
+      record.briefExtractedText || '',
+      record.briefStatus || '',
+      record.briefFileName || ''
     ]);
     if (state.studyMaterialIndex.get(key)?.signature === signature) return;
     const text = record.body || record.extractedText || record.text
       || (type === 'card' ? `${record.front || ''}\n${record.back || ''}` : '');
-    const chunks = type === 'document' || type === 'note' ? splitStudyText(text) : [String(text || '')];
+    const chunks = ['document', 'note', 'assignment'].includes(type)
+      ? splitStudyText(text)
+      : [String(text || '')];
     state.studyMaterialIndex.set(key, {
       signature,
       chunks: chunks.map((excerpt, index) => ({
@@ -87,7 +95,12 @@ export function updateStudyMaterialIndex() {
   indexStudyMaterial('quiz', dependencies.getQuizResults());
   indexStudyMaterial('assignment', dependencies.getAssignments().map(item => ({
     ...item, title: item.title, course: dependencies.classForAssignment(item)?.name || 'General',
-    text: `${item.title || 'Assignment'} ${item.details || ''} due ${new Date(Number(item.dueAt)).toLocaleString()} ${item.completed ? 'completed' : 'open'}`
+    text: `${item.title || 'Assignment'} due ${new Date(Number(item.dueAt)).toLocaleString()} ${item.completed ? 'completed' : 'open'} ${item.details || ''}`
+      + (item.briefStatus === 'needs_text'
+        ? '\nBrief file attached but no readable text was extracted; ask the student to paste the text.'
+        : item.briefExtractedText
+          ? `\nAssignment brief (${item.briefFileName || 'pasted'}): ${item.briefExtractedText}`
+          : '')
   })));
   indexStudyMaterial('class', dependencies.getClasses().map(item => ({
     ...item, course: item.name, text: `${item.name} ${item.instructor || ''} ${item.location || ''} ${dependencies.formatMeetingDays(item.meetingDays)} ${item.startTime || ''} ${item.endTime || ''}`
@@ -114,10 +127,18 @@ export function retrieveStudyReferences(question) {
   updateStudyMaterialIndex();
   const queryTerms = [...new Set(tokenizeStudyText(question))];
   if (!queryTerms.length) return [];
-  const query = $('tutor-study-scope').value;
+  const query = $('tutor-study-scope')?.value || 'all';
   const includePlanning = /\b(class|classes|course|schedule|assignment|assignments|deadline|due|progress|timer|focus|study time|session)\b/i.test(question);
-  const candidates = [...state.studyMaterialIndex.values()].flatMap(entry => entry.chunks)
+  const scopedAssignmentId = query.startsWith('assignment:') ? query.slice('assignment:'.length) : '';
+  const allChunks = [...state.studyMaterialIndex.values()].flatMap(entry => entry.chunks);
+  const assignmentTitleMatches = new Map();
+  allChunks.filter(chunk => chunk.type === 'assignment').forEach(chunk => {
+    const overlap = tokenizeStudyText(chunk.title).filter(term => queryTerms.includes(term)).length;
+    if (overlap) assignmentTitleMatches.set(chunk.sourceId, Math.max(assignmentTitleMatches.get(chunk.sourceId) || 0, overlap));
+  });
+  const candidates = allChunks
     .filter(chunk => {
+      if (scopedAssignmentId) return chunk.type === 'assignment' && chunk.sourceId === scopedAssignmentId;
       if (query.startsWith('course:') && chunk.course !== query.slice(7)) return false;
       if (query.startsWith('document:')) {
         const documentId = query.slice(9);
@@ -125,7 +146,9 @@ export function retrieveStudyReferences(question) {
           || (chunk.type === 'note' && dependencies.getNotes().find(item => item.id === chunk.sourceId)?.sourceDocumentId === documentId)
           || (chunk.type === 'card' && dependencies.getCards().find(item => item.id === chunk.sourceId)?.sourceDocumentId === documentId);
       }
-      if (!includePlanning && ['assignment', 'class', 'session'].includes(chunk.type)) return false;
+      if (!includePlanning && ['class', 'session'].includes(chunk.type)) return false;
+      if (!includePlanning && chunk.type === 'assignment'
+        && !assignmentTitleMatches.has(chunk.sourceId)) return false;
       return true;
     });
   const documentFrequency = new Map();
@@ -150,14 +173,29 @@ export function retrieveStudyReferences(question) {
     }, 0);
     return { chunk, score };
   }).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
+  const priorityAssignments = [...assignmentTitleMatches.entries()]
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+    .flatMap(([sourceId]) => ranked
+      .filter(item => item.chunk.type === 'assignment' && item.chunk.sourceId === sourceId)
+      .slice(0, 4)
+      .map(item => item.chunk)
+      .sort((a, b) => a.chunkIndex - b.chunkIndex));
+  const priorityAssignmentIds = new Set(priorityAssignments.map(chunk => chunk.sourceId));
   const references = [];
   const seen = new Set();
+  const assignmentCounts = new Map();
   let usedCharacters = 0;
-  for (const { chunk } of ranked) {
+  const addReference = chunk => {
     const key = `${chunk.type}:${chunk.sourceId}`;
     const text = chunk.text.slice(0, 900);
-    if (seen.has(key) || usedCharacters + text.length > 7000) continue;
-    seen.add(key);
+    if (chunk.type === 'assignment') {
+      const count = assignmentCounts.get(chunk.sourceId) || 0;
+      if (count >= 4 || usedCharacters + text.length > 7000 || references.length >= 8) return;
+      assignmentCounts.set(chunk.sourceId, count + 1);
+    } else {
+      if (seen.has(key) || usedCharacters + text.length > 7000 || references.length >= 8) return;
+      seen.add(key);
+    }
     references.push({
       type: chunk.type,
       title: chunk.title,
@@ -166,8 +204,12 @@ export function retrieveStudyReferences(question) {
       text
     });
     usedCharacters += text.length;
-    if (references.length >= 8) break;
-  }
+  };
+  priorityAssignments.forEach(addReference);
+  ranked.forEach(({ chunk }) => {
+    if (chunk.type === 'assignment' && priorityAssignmentIds.has(chunk.sourceId)) return;
+    addReference(chunk);
+  });
   return references;
 }
 
