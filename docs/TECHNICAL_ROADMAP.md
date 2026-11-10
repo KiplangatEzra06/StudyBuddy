@@ -16,7 +16,7 @@ The repository documentation describes the following stack and structure:
 - Neon PostgreSQL accessed through `pg`.
 - `express-session` with `connect-pg-simple` for server-side sessions.
 - Render deployment.
-- Ollama Cloud integration for AI functionality.
+- Provider-agnostic OpenAI-compatible AI integration using Groq.
 - Backend organization around routes, controllers, services, and repositories.
 - Frontend feature modules with shared services and an event bus.
 

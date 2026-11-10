@@ -1,6 +1,6 @@
 const { query, transaction } = require('../../db/pool');
 const { CARD_SELECT } = require('../services/cards');
-const { callOllamaJson, modelJsonError } = require('../services/ai-content');
+const { callAiJson, modelJsonError } = require('../services/ai-content');
 const { databaseFailure } = require('../services/database-errors');
 const { calculateSm2, qualityForScore } = require('../services/sm2');
 const reviewsRepository = require('../repositories/reviews');
@@ -48,7 +48,7 @@ async function gradeReview(req, res) {
     const card = await reviewsRepository.findCardForGrading(query, cardId);
     if (!card) return res.status(404).json({ error: 'This flashcard no longer exists.' });
     if (userAnswer) {
-      const grade = await callOllamaJson([
+      const grade = await callAiJson([
         {
           role: 'system',
           content: 'Grade the student answer leniently on wording but strictly on meaning. Return ONLY JSON in this exact shape: {"score":0,"feedback":"one sentence on what was right or missing"}. Score must be an integer from 0 to 100. Do not require exact wording.'
@@ -65,7 +65,7 @@ async function gradeReview(req, res) {
           throw modelJsonError('The AI returned an invalid answer grade.');
         }
         return { score: payload.score, feedback: payload.feedback.trim() };
-      }, 'Could not grade this answer. Please try again.', 'answer grading');
+      }, 'Could not grade this answer. Please try again.', 'answer grading', 300);
       score = grade.score;
       feedback = grade.feedback;
     }

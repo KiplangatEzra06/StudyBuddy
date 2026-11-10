@@ -8,7 +8,7 @@ Most API requests follow **routes → controllers → services and repositories*
 
 - `routes/` maps API paths to controller functions.
 - `controllers/` validates inputs, coordinates services and repositories, and sends responses. Assignment-brief request handling lives here.
-- `services/` contains shared AI parsing and validation, card normalization, assignment-brief validation, database error handling, owner IDs, Ollama integration, and SM-2 scheduling.
+- `services/` contains shared AI parsing and validation, the provider-agnostic AI service, card normalization, assignment-brief validation, database error handling, owner IDs, and SM-2 scheduling.
 - `repositories/` contains SQL-backed operations for assignment briefs, decks, cards, and reviews.
 - `middleware/request.js` enforces authentication and JSON/CSRF requirements.
 

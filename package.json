@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Secure backend for Margin study app",
   "main": "server.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
@@ -25,7 +28,7 @@
     "express-rate-limit": "^8.7.2",
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
-    "node-fetch": "^2.6.11",
+    "openai": "^7.55.0",
     "pg": "^8.23.1"
   },
   "devDependencies": {

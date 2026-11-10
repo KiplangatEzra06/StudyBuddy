@@ -5,31 +5,35 @@ Margin is a single-user study app with local browser features and a Neon-backed 
 ## Frontend and backend
 
 - The app is served from the same Express origin (`public/`), so browser requests use relative `/api/...` URLs and cookie-based auth instead of tokens.
-- The backend proxies AI requests to Ollama, validates JSON responses, and stores flashcard data in Neon Postgres.
+- The backend sends AI requests through a provider-agnostic OpenAI-compatible service, validates JSON responses, and stores flashcard data in Neon Postgres.
 - Local-only app data such as documents, notes, classes, assignments, quiz history, and timer sessions remain in IndexedDB.
 - The frontend entrypoint and shared API/storage services are native modules under `frontend/`; backend application code is under `backend/`. See [docs/architecture.md](./docs/architecture.md).
 
 ## Local setup
 
+Requires Node.js 22 or newer.
+
 ```bash
 npm install
-cp .env.example .env
 npm run migrate
 npm start
 ```
+
+Create a `.env` file and set the required variables listed below.
 
 Open `http://localhost:3000`.
 
 ## Required environment variables
 
-Copy `.env.example` to `.env` and fill in these values:
+Set these values in `.env`:
 
 - `ADMIN_USERNAME`: the single admin username
 - `ADMIN_PASSWORD_HASH`: a bcrypt hash generated with `npm run hash-password`
 - `SESSION_SECRET`: a long random string (32+ chars in production)
-- `OLLAMA_API_KEY`: Ollama Cloud API key
-- `OLLAMA_BASE_URL`: typically `https://ollama.com`
-- `OLLAMA_MODEL`: default is `gpt-oss:20b`
+- `AI_BASE_URL`: OpenAI-compatible API URL (Groq: `https://api.groq.com/openai/v1`)
+- `AI_API_KEY`: API key for the configured AI provider
+- `AI_MODEL`: primary model (default: `openai/gpt-oss-120b`)
+- `AI_FALLBACK_MODELS`: comma-separated fallback models (default: `openai/gpt-oss-20b,qwen/qwen3.8-27b`)
 - `DATABASE_URL`: Neon pooled PostgreSQL connection string with `sslmode=require`
 - `PORT`: optional, defaults to `3000`
 
@@ -57,6 +61,16 @@ If you want to avoid putting the password in your shell history, run the command
 - The session table is created by the same migration flow.
 - Protected state-changing routes require JSON content and the `X-Requested-With: StudyBuddy` header.
 
+## AI provider health check
+
+After starting the app and signing in, open `http://localhost:3000/api/ai/health`. The authenticated endpoint sends a short test prompt and returns the model that answered, for example:
+
+```json
+{"status":"ok","model":"openai/gpt-oss-120b"}
+```
+
+The same route is available on Render after sign-in. It never returns the API key.
+
 ## Migration
 
 ```bash
@@ -77,9 +91,10 @@ Add these environment variables in Render:
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD_HASH`
 - `SESSION_SECRET`
-- `OLLAMA_API_KEY`
-- `OLLAMA_BASE_URL=https://ollama.com`
-- `OLLAMA_MODEL=gpt-oss:20b`
+- `AI_BASE_URL=https://api.groq.com/openai/v1`
+- `AI_API_KEY`
+- `AI_MODEL=openai/gpt-oss-120b`
+- `AI_FALLBACK_MODELS=openai/gpt-oss-20b,qwen/qwen3.8-27b`
 - `DATABASE_URL=<Neon pooled PostgreSQL connection string with sslmode=require>`
 
 Render provides `PORT` automatically.
@@ -106,6 +121,7 @@ The app includes a temporary browser export/import flow for migrating existing l
 - `POST /api/auth/logout`
 - `GET /api/auth/me`
 - `GET /health`
+- `GET /api/ai/health`
 - `POST /api/cards/generate`
 - `POST /api/cards/save`
 - `GET /api/review/next`

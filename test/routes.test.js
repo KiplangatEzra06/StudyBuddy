@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
+const http = require('node:http');
 const request = require('supertest');
 
 process.env.NODE_ENV = 'test';
@@ -12,6 +13,10 @@ process.env.SESSION_SECRET = 'test-session-secret-that-is-at-least-32-chars';
 const app = require('../server');
 
 test('extracted routes and frontend modules are mounted correctly', async () => {
+  const unauthenticatedHealth = await request(app).get('/api/ai/health');
+  assert.equal(unauthenticatedHealth.status, 401);
+  assert.equal(unauthenticatedHealth.body.error, 'Authentication required.');
+
   const agent = request.agent(app);
   const headers = {
     'Content-Type': 'application/json',
@@ -24,6 +29,32 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
     .send({ username: 'admin', password: 'secret-password' });
 
   assert.equal(login.status, 200);
+
+  const aiRequests = [];
+  const mockAiServer = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    aiRequests.push(JSON.parse(body));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }));
+  });
+  await new Promise(resolve => mockAiServer.listen(0, '127.0.0.1', resolve));
+  process.env.AI_BASE_URL = `http://127.0.0.1:${mockAiServer.address().port}/v1`;
+  process.env.AI_API_KEY = 'test-ai-key';
+  process.env.AI_MODEL = 'health-test-model';
+  process.env.AI_FALLBACK_MODELS = '';
+  try {
+    const health = await agent.get('/api/ai/health').set(headers);
+    assert.equal(health.status, 200);
+    assert.deepEqual(health.body, { status: 'ok', model: 'health-test-model' });
+    assert.deepEqual(aiRequests[0].messages, [
+      { role: 'user', content: 'Reply with exactly the word OK on one line.' }
+    ]);
+  } finally {
+    await new Promise((resolve, reject) => {
+      mockAiServer.close(error => error ? reject(error) : resolve());
+    });
+  }
 
   const ai = await agent
     .post('/api/ai')

@@ -1,5 +1,6 @@
 const express = require('express');
 const {
+  aiHealthCheck,
   tutor,
   generateTopicCards,
   generateNotes,
@@ -9,6 +10,7 @@ const {
 
 function createAiRouter() {
   const router = express.Router();
+  router.get('/api/ai/health', aiHealthCheck);
   router.post('/api/ai', tutor);
   router.post('/api/cards/generate', generateTopicCards);
   router.post('/api/generate-notes', generateNotes);

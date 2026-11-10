@@ -3,6 +3,17 @@
 **Version:** 0.1  
 **Purpose:** Maintain a chronological record of implementation, decisions, defects, and releases.
 
+## 2026-11-10 — Groq AI provider migration
+
+**Status:** Implemented
+
+- Replaced active Ollama calls with one OpenAI-compatible AI service, Groq model fallback on rate limits, per-model cooldowns, and token-budget protection.
+- Added an authenticated AI health endpoint and documented the required `AI_*` environment variables, local check, and Render settings.
+- Removed the unused Ollama transport and `node-fetch` dependency; the OpenAI SDK requires Node.js 22 or newer.
+- Preserved Tutor step-by-step assignment guidance and frontend rendering.
+- Verification: `npm test` passed; AI fallback and budget behavior passed mock-provider checks. The database integration test was skipped because `TEST_DATABASE_URL` was not set.
+- Open: `.env.example` was already deleted in the worktree and was left deleted at the user's request. The assignment-brief UI's existing Ollama wording remains unchanged because frontend files were out of scope.
+
 ## 1. Project baseline
 
 - Live application: https://studybuddy2-r2i6.onrender.com/
@@ -13,7 +24,7 @@
 - Experience direction: hybrid.
 - December direction: reimagine the complete product experience.
 
-Repository documentation describes an Express/Node backend, native JavaScript ES-module frontend, Neon PostgreSQL, `pg`, server-side sessions, Render deployment, and Ollama Cloud integration. It also documents a mixture of PostgreSQL persistence and IndexedDB persistence. Verify these details against current code before relying on them.
+Repository documentation describes an Express/Node backend, native JavaScript ES-module frontend, Neon PostgreSQL, `pg`, server-side sessions, Render deployment, and Groq through an OpenAI-compatible AI service. It also documents a mixture of PostgreSQL persistence and IndexedDB persistence. Verify these details against current code before relying on them.
 
 ## 2. Current priorities
 

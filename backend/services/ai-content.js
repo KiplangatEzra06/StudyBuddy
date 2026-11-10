@@ -1,4 +1,4 @@
-const { callOllama } = require('./ollama');
+const { generate } = require('./ai');
 
 function parseJsonText(text) {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -54,10 +54,11 @@ function getDocumentMessages(prompt, document) {
 }
 
 function sendAiError(res, error, fallback) {
-  if (error.upstreamStatus) {
-    return res.status(502).json({
-      error: `Ollama rejected the request (upstream status: ${error.upstreamStatus})`
-    });
+  if (error.code === 'AI_QUOTA_EXHAUSTED') {
+    return res.status(503).json({ error: 'AI quota reached for now. Try again later.' });
+  }
+  if (error.status === 413) {
+    return res.status(413).json({ error: error.message });
   }
   const status = error.status || 502;
   const message = status === 502 && error.message.includes('malformed JSON')
@@ -72,15 +73,19 @@ function modelJsonError(message, status = 502) {
   return error;
 }
 
-async function callOllamaJson(messages, validate, failureMessage, operation) {
+async function callAiJson(messages, validate, failureMessage, operation, maxTokens = 1000) {
   let lastError;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const parsed = parseJsonText(await callOllama(messages, { format: 'json' }));
+      const parsed = parseJsonText(await generate({ messages, maxTokens }));
       return validate(parsed);
     } catch (error) {
+      if (error.code === 'AI_QUOTA_EXHAUSTED'
+        || [400, 401, 403, 413].includes(Number(error.status))) {
+        throw error;
+      }
       lastError = error;
-      console.error(`Ollama ${operation} attempt failed`, {
+      console.error(`AI ${operation} attempt failed`, {
         attempt,
         status: error.status || 0,
         code: error.code || 'unknown'
@@ -248,7 +253,7 @@ function parseNotesResponse(text, document) {
 }
 
 module.exports = {
-  callOllamaJson,
+  callAiJson,
   getDocumentMessages,
   getReferenceLabel,
   malformedJsonError,

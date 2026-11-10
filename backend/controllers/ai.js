@@ -1,8 +1,8 @@
 const prompts = require('../config/prompts');
-const { callOllama } = require('../services/ollama');
+const { generate } = require('../services/ai');
 const { normalizeCardText } = require('../services/cards');
 const {
-  callOllamaJson,
+  callAiJson,
   getDocumentMessages,
   getReferenceLabel,
   malformedJsonError,
@@ -13,6 +13,22 @@ const {
   validateDocument,
   validateReferences
 } = require('../services/ai-content');
+
+async function aiHealthCheck(req, res) {
+  let answeredModel;
+  try {
+    await generate({
+      messages: [{ role: 'user', content: 'Reply with exactly the word OK on one line.' }],
+      maxTokens: 10,
+      onModel: model => {
+        answeredModel = model;
+      }
+    });
+    return res.json({ status: 'ok', model: answeredModel });
+  } catch (error) {
+    return sendAiError(res, error, 'AI health check failed.');
+  }
+}
 
 async function tutor(req, res) {
   const input = typeof req.body.input === 'string' ? req.body.input.trim() : '';
@@ -64,12 +80,16 @@ async function tutor(req, res) {
   }
 
   try {
-    const reply = await callOllama([...systemMessages, ...messages], streaming ? {
-      signal: streamController.signal,
-      onToken: token => {
-        if (!res.destroyed) res.write(`data: ${JSON.stringify({ token })}\n\n`);
-      }
-    } : undefined);
+    const reply = await generate({
+      messages: [...systemMessages, ...messages],
+      maxTokens: 1000,
+      ...(streaming ? {
+        signal: streamController.signal,
+        onToken: token => {
+          if (!res.destroyed) res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        }
+      } : {})
+    });
     const result = {
       reply,
       sources: references.map(reference => ({
@@ -92,10 +112,12 @@ async function tutor(req, res) {
     if (streaming && res.headersSent) {
       if (!res.destroyed) {
         res.write(`data: ${JSON.stringify({
-          error: error.upstreamStatus
-            ? `Ollama rejected the request (upstream status: ${error.upstreamStatus})`
-            : 'Could not reach the AI tutor. Please try again.',
-          status: Number(error.status) || 502
+          error: error.code === 'AI_QUOTA_EXHAUSTED'
+            ? 'AI quota reached for now. Try again later.'
+            : error.status === 413
+              ? error.message
+              : 'Could not reach the AI tutor. Please try again.',
+          status: error.code === 'AI_QUOTA_EXHAUSTED' ? 503 : Number(error.status) || 502
         })}\n\n`);
         res.end();
       }
@@ -128,7 +150,7 @@ async function generateTopicCards(req, res) {
     'Use concise fronts and clear, accurate backs. Do not invent facts.'
   ].join(' ');
   try {
-    const result = await callOllamaJson([
+    const result = await callAiJson([
       { role: 'system', content: prompt },
       { role: 'user', content: `Notes:\n${notes}` }
     ], payload => {
@@ -154,7 +176,7 @@ async function generateTopicCards(req, res) {
       }
       if (!cards.length) throw modelJsonError('The AI did not return any usable cards.');
       return cards;
-    }, 'Could not generate valid flashcards. Please try again.', 'flashcard generation');
+    }, 'Could not generate valid flashcards. Please try again.', 'flashcard generation', 600);
     res.json({ topic, cards: result });
   } catch (error) {
     res.status(error.status || 502).json({ error: error.message || 'Could not generate flashcards. Please try again.' });
@@ -167,7 +189,7 @@ async function generateNotes(req, res) {
 
   try {
     const notes = parseNotesResponse(
-      await callOllama(getDocumentMessages(prompts.summarize, document)),
+      await generate({ messages: getDocumentMessages(prompts.summarize, document), maxTokens: 1000 }),
       document
     );
     res.json(notes);
@@ -181,7 +203,10 @@ async function generateFlashcards(req, res) {
   if (!document) return;
 
   try {
-    const payload = parseJsonText(await callOllama(getDocumentMessages(prompts.flashcards, document)));
+    const payload = parseJsonText(await generate({
+      messages: getDocumentMessages(prompts.flashcards, document),
+      maxTokens: 600
+    }));
     if (!payload || Array.isArray(payload) || typeof payload !== 'object' || !Array.isArray(payload.cards)) {
       throw malformedJsonError();
     }
@@ -214,7 +239,10 @@ async function generateQuiz(req, res) {
   if (!document) return;
 
   try {
-    const payload = parseJsonText(await callOllama(getDocumentMessages(prompts.quiz, document)));
+    const payload = parseJsonText(await generate({
+      messages: getDocumentMessages(prompts.quiz, document),
+      maxTokens: 600
+    }));
     if (!payload || Array.isArray(payload) || typeof payload !== 'object' || !Array.isArray(payload.questions)) {
       throw malformedJsonError();
     }
@@ -266,6 +294,7 @@ async function generateQuiz(req, res) {
 }
 
 module.exports = {
+  aiHealthCheck,
   tutor,
   generateTopicCards,
   generateNotes,

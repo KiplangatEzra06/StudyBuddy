@@ -1,10 +1,10 @@
 /**
  * StudyBuddy Backend Server
- * Securely proxies Ollama Cloud calls for tutor and document-powered AI features.
+ * Securely proxies AI calls for tutor and document-powered AI features.
  *
  * SETUP:
  * 1. npm install
- * 2. Create .env with ADMIN_USERNAME, ADMIN_PASSWORD_HASH, SESSION_SECRET, OLLAMA_API_KEY, and DATABASE_URL configured
+ * 2. Create .env with ADMIN_USERNAME, ADMIN_PASSWORD_HASH, SESSION_SECRET, AI_BASE_URL, AI_API_KEY, AI_MODEL, and DATABASE_URL configured
  * 3. npm start
  */
 
