@@ -1,87 +1,88 @@
 # Architecture Gap Analysis
 
-## Scope
+## Scope and status terms
 
-This document compares the current StudyBuddy codebase against the approved architectural direction described in the Phase 0 brief: modular monolith with clear boundaries, progressive transformation, no premature microservices, and explicit data ownership between PostgreSQL and IndexedDB.
+This comparison uses the approved Phase 0 blueprint supplied by the user and the repository code inspected for this audit. The exact twelve separate blueprint source documents were not found in the repository; constraints explicitly included in the supplied blueprint are retained here, while omitted stage-level details remain unverified.
 
-## Approved-blueprint comparison
+Statuses: **Implemented**, **Partially implemented**, **Missing**, **Conflicting**, and **Requires verification**. A visible UI or code path alone is not proof of a complete workflow.
 
-| Architectural area | Current state | Gap against approved blueprint | Priority |
-| --- | --- | --- | --- |
-| Modular monolith | Present | Strongly aligned | High |
-| Clear domains | Partially present | Some modules are mixed or under-specified | High |
-| Service-ready interfaces | Partially present | Some controller/service logic is still tight | High |
-| Data ownership explicitness | Partially present | Mixed local/browser and server-backed behaviors need clearer ownership rules | High |
-| AI orchestration boundary | Partially present | AI provider logic and prompt orchestration are not fully isolated | High |
-| Assignment-brief domain boundary | Partial | File-processing and persistence logic is still tightly coupled | Medium |
-| Local/offline persistence | Present | Mostly appropriate, but boundaries should be standardized | Medium |
-| Deployment readiness | Good | Mostly compliant with Render-style needs | Medium |
+## Approved architecture versus current implementation
 
-## Missing or underdeveloped modules
+| Requirement | Status | Evidence / gap |
+|---|---|---|
+| Modular monolith, one deployable backend, no premature microservices | Implemented | Express app composition and domain routes; no microservices. |
+| Incremental, dependency-driven transformation and preservation | Approved; implementation planning only | Existing app is maintained; no Phase 1 work is authorized yet. |
+| Coherent feature-based frontend, shared conventions and clear API boundary | Partially implemented | Native ES modules, services, shared state and event bus; no formal component/state system. |
+| PostgreSQL authority for server-backed records | Partially implemented | Sessions, decks/cards/reviews, assignment workspace snapshots. Other workspace records remain local. |
+| IndexedDB for approved offline/local caching and queued operations | Partially implemented | Native IndexedDB key/value store exists; no formal general queue/sync protocol. |
+| Explicit ownership of files, extracted text, metadata, chunks, embeddings | Partially implemented | Brief metadata/text exists in PostgreSQL; document content is mostly local; no object or vector storage. |
+| Secure authentication, authorization and resource ownership | Partially implemented | Single-admin cookie session and request guards exist; multi-user authorization is not implemented for cards/decks. |
+| AI integration behind reusable boundary | Partially implemented | Provider adapter/fallback exists; orchestration concerns are spread across controllers and services. |
+| Operational readiness (migration, backups, CI, monitoring) | Requires verification / missing pieces | Idempotent schema script exists but is unversioned; no CI workflow found; backup/production operation not verified. |
 
-### 1. Explicit AI orchestration layer
+## Twelve logical product domains
 
-Current state:
+| Logical domain | Current state | Gap and next boundary |
+|---|---|---|
+| Authentication | Single-admin session authentication implemented | Authorization remains single-user; define ownership scope before multi-user use. |
+| Courses | Classes are browser-local | No explicit Courses domain/API or server persistence. |
+| Materials | Local documents/notes and browser-selected Tutor references | No server-managed material repository, OCR, object store or vector retrieval. |
+| AI Tutor | Tutor API and local history exist | One general behavior is too prescriptive; six approved modes are not established as distinct policy contracts. |
+| AI Orchestration | Provider call, fallback, token budgeting exist | Model Gateway, Prompt Manager, Context Manager, Tool Registry, usage monitoring and response contract are not complete logical modules. |
+| Learning Engine | Flashcard reviews and SM-2 exist | No separate mastery/confidence/recency/consistency model or learning-objective graph. Activity must not equal mastery. |
+| Assessments | Quiz generation and local results exist | No structured evaluation engine; Test Mode restrictions are not enforced in backend logic. |
+| Memory Manager | Tutor conversations stored locally | Five logical memory domains and learner controls are not implemented. |
+| Insights | Review topic stats and progress UI exist | No validated multi-dimensional learner model; activity metrics must not overstate mastery. |
+| Productivity | Timer, assignments, classes, calendar exist locally | Persistence and cross-feature ownership remain local; broader cloud authority not implemented. |
+| Evaluation | Selected schema/response validation and unit tests exist | No AI evaluation suite for academic accuracy, pedagogy, grounding, critical failures, or monitoring. |
+| Governance | Session hardening, limits, and some prompt injection boundaries exist | Privacy/retention, age safeguards, deletion propagation, incident response and provider policy controls remain unspecified. |
 
-- `backend/services/ai/index.js` contains provider logic and fallback handling.
-- `backend/controllers/ai.js` manages prompt construction and output validation.
-- Frontend features call the AI endpoints directly.
+## AI Tutor blueprint capability comparison
 
-Gap:
+| Capability / constraint | Status | Finding |
+|---|---|---|
+| Understanding, adaptation, guidance, evidence and progress principles | Partially implemented | Grounding and structured feedback exist; broad behavior is not consistently adaptive. |
+| Adaptive direct-first or guided-first teaching; honor explicit direct-answer request in ordinary tutoring | Conflicting | `backend/config/prompts.js` says never complete or reveal an answer even if asked. This conflicts with approved behavior. Assignment-specific academic-integrity rules may remain restrictive. |
+| Subject/topic/objective adaptation; distinct mastery, confidence, recency and consistency | Missing | Current review scheduling is not this learner model. Completing activity must never establish mastery. |
+| Eight teaching methodologies | Partially implemented | The prompt supports step-by-step guidance, but no methodology selection/evaluation contract was identified. |
+| Six modes: Learn, Practice, Revise, Test, Explain, Apply | Missing / requires verification | No explicit six-mode API or backend policy model was identified. Test Mode must not rely on prompt instructions alone. |
+| Context authority, source conflict/missing-source handling | Partially implemented | Browser-supplied references are wrapped as untrusted and source metadata is validated; no server-managed retrieval pipeline or source conflict model. |
+| OCR deferred beyond v1; extensible document pipeline | Deferred | No OCR identified. Keep a future extension seam; do not add OCR in v1 without approval. |
+| Examination prediction threshold (at least 3 verified papers) | Missing | No exam prediction workflow or enforcement gate found. Below threshold must remain descriptive-only; predictions must never be guaranteed. |
+| Five logical memory domains and user visibility/control | Missing | Tutor history is local; persistent learner memory and deletion controls are not implemented. |
+| AI orchestrator component set | Partially implemented | Some provider, context-by-client, prompt, and validation pieces exist; no complete set of Orchestrator, Model Gateway, Prompt Manager, Context Manager, Retrieval Engine, Memory Manager, Response Validator, Tool Registry, Evaluation Engine and Usage Monitor. |
+| Evidence-driven model improvement; no automatic training from student data | Partially implemented / no fine-tuning found | No fine-tuning pipeline was found. Conversations and uploaded materials must not become training data automatically. |
+| Evaluation layers and critical-failure gates | Partially implemented | Unit/request tests exist; AI pedagogy evaluations, adversarial tests, browser E2E and production smoke checks are absent/unverified. |
+| Defense in depth and untrusted-content controls | Partially implemented | Session controls, input checks, upload validation and untrusted reference delimiters exist; complete authorization, scanning, retention and incident controls are not established. |
 
-The app has AI capabilities, but the orchestration flow is not yet abstracted into a clean, service-ready domain layer that enforces a single contract across tutor, notes, summary, card generation, and quiz generation.
+## Prioritized technical debt and risks
 
-### 2. Stronger domain boundaries for assignment briefs
+No evidence supports labeling an observed issue “Critical” at this stage. Priorities below are practical architectural risks, not confirmed production incidents.
 
-Current state:
+| Priority | Finding and evidence | Why it matters | Recommended resolution / dependency |
+|---|---|---|---|
+| High | General Tutor prompt prohibits direct solutions in all cases (`backend/config/prompts.js`). | Conflicts with approved adaptive ordinary tutoring; may block user-directed learning. | Define mode/context policy with a distinct backend-enforced assessment boundary. Do not edit prompts during Phase 0. |
+| High | Server records are not generally user-scoped; single-admin setup; `cards`/`decks` schema has no owner field. | Multi-user rollout without migration and authorization would risk cross-user access. | Keep single-admin scope explicit; design/test ownership before enabling multi-user. |
+| High | Idempotent whole-schema migration lacks version ledger; start does not migrate; no backup procedure verified. | Harder to diagnose ordered changes or recover safely. | Decide versioned migration and backup/recovery policy before schema expansion. |
+| High | No CI, DB integration test was skipped, no browser E2E or production smoke test. | Passing current tests cannot establish persistence or production reliability. | Add test layers and a safe CI/deployment verification path. |
+| Medium | IndexedDB write helper returns `false` on failure and `undefined` on failed reads; callers vary in result checking. | Failed saves may be mistaken for success. | Inventory callsites and establish explicit save error UX/test coverage. |
+| Medium | Tutor references are indexed/retrieved in the browser and sent with requests. | Not a server-managed, independently authorized knowledge retrieval system; client selection is not a trusted authority. | Define server-side access/context contract before moving to retrieval infrastructure. |
+| Medium | No original brief-file object storage; only metadata/extracted text persisted. | Users may assume uploaded files can be retrieved after attachment. | Explicitly define retention and product UX; select storage only if required. |
+| Medium | `.env.example` absent; `backend/README.md` references it. | New local setups lack a checked-in variable-name template. | Decide and document a safe template containing names/placeholders only. |
+| Medium | Outdated Ollama wording remains in `public/index.html`. | Misleads users about provider/data handling. | Correct as a separate approved product-copy task; preserve backend behavior. |
+| Low | Large feature modules (verified sizes below). | Increases change/review complexity, but size alone is not a defect. | Decompose only when a bounded functional responsibility is identified. |
 
-- Assignment brief logic spans router, controller, service, repository, and frontend UI modules.
+In this checkout, `frontend/features/notes.js` is 1,132 lines, `tutor.js` 746, and `flashcards.js` 656. These differ from the counts in the submitted review; actual repository counts are used here.
 
-Gap:
+## Features to preserve
 
-This feature works but is still visible as a multi-layer workflow with a less explicit ownership boundary than the flashcard/review domain.
+- Single-admin authentication/session behavior and current protections.
+- Flashcard persistence, import safeguards, and SM-2 review scheduling.
+- Local notes, documents, classes, assignments, quiz results, timer sessions and Tutor history.
+- Tutor source-grounding behavior, while correcting its general-versus-assessment policy in a later approved task.
+- Assignment brief validation and persistence behavior.
+- Existing export/import and undo workflows.
 
-### 3. Data-ownership enforcement contract
+## Refactoring direction
 
-Current state:
-
-- Data is deliberately split between PostgreSQL and IndexedDB.
-- Documentation states this split clearly.
-
-Gap:
-
-The repository still has parts of the app where local and server persistence behavior is not fully formalized in a single ownership contract. That makes future refactors riskier.
-
-## Architectural weaknesses
-
-### A. Stale migration language
-
-The app has already migrated away from some prior technologies, but product copy still references older implementations. Example: the UI text in `public/index.html` still says "Brief content is sent to Ollama Cloud..." even though the repo description and AI service now center on Groq/OpenAI-compatible provider logic.
-
-This is a concrete product/architecture mismatch and is a sign of incomplete migration cleanup.
-
-### B. Mixing local and server responsibilities in some workflows
-
-The system is intentionally hybrid, but some user-facing workflows still combine browser-local processing with server-backed persistence in ways that are not fully documented as explicit contracts.
-
-### C. Partial domain clarity around AI output validation
-
-The system validates tutor output and normalizes AI-generated content, but the validation concerns are spread across several controller and service boundaries. That is workable, but not yet ideal for a long-term architecture.
-
-### D. Dependency pressure from growing frontend feature modules
-
-The frontend feature modules are modular, but they still rely on shared state and callback abstractions without a fully centralized state-management layer. This is acceptable for a single-user app, but it should remain intentionally bounded.
-
-## Recommended evolution path
-
-### Phase 1 priorities
-
-1. Formalize data ownership boundaries
-2. Isolate AI orchestration from UI and controller concerns
-3. Normalize assignment-brief feature ownership
-4. Remove stale migration copy and documentation drift
-5. Prepare module-by-module refactoring with test coverage preserved
-
-## Summary
-
-The repository is not in a broken state, but it is not yet fully aligned with the approved blueprint. The strongest foundation is already present: modular frontend structure, separate backend, PostgreSQL authority, IndexedDB local workflow, and working AI/review logic. The gap is mostly in boundary enforcement and architectural cleanliness rather than in absence of core functionality.
+Phase 1 must follow the approved **Core Infrastructure and Security** scope, not replace it with architecture cleanup. First establish configuration, migration/recovery, identity/authorization boundaries, API/file/input controls, privacy/logging/monitoring, tests/CI and deployment verification. Only after these foundations are reviewed should AI orchestration and feature-module decomposition proceed. See `PHASE_1_BACKLOG.md` and `REFACTORING_PLAN.md`.

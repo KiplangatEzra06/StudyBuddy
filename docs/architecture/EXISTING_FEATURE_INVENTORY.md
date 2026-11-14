@@ -1,72 +1,36 @@
 # Existing Feature Inventory
 
-## Overview
+## Status convention
 
-This inventory records the feature set that currently exists in the repository and identifies whether each feature appears to be working, partially implemented, or in need of refactoring.
+- **Implemented:** code and a relevant repository test/workflow support the claim.
+- **Partially implemented:** core code exists, but an approved requirement or workflow is missing.
+- **Requires verification:** code is present, but meaningful end-to-end or production behavior is not established by available tests.
+- **Missing:** no implementation was identified in the inspected repository.
+- **Conflicting:** current behavior contradicts an approved requirement.
 
-| Feature | Current status | Relevant files | Dependencies | Data ownership | Recommendation |
-| --- | --- | --- | --- | --- | --- |
-| Authentication | Working | `backend/routes/auth.js`, `backend/middleware/request.js`, `backend/app/index.js` | session config, bcrypt, DB session store | PostgreSQL | Preserve and harden |
-| Dashboard | Working | `frontend/features/dashboard.js`, `public/styles/dashboard.css` | shared state, event bus | Local UI state + some backend stats | Preserve |
-| Documents | Working | `frontend/features/documents.js`, `frontend/services/storage.js` | IndexedDB storage | IndexedDB | Preserve and clarify ownership |
-| Notes | Implemented; tests cover parser/validation rather than full UI workflow | `frontend/features/notes.js`, `backend/controllers/ai.js` | AI generation, IndexedDB | Generated notes are stored in IndexedDB | Preserve |
-| Classes | Implemented; runtime workflow not independently validated | `frontend/features/classes.js`, `frontend/services/storage.js` | frontend state, IndexedDB, calendar data | IndexedDB | Preserve |
-| Assignments | Implemented; runtime workflow not independently validated | `frontend/features/assignments.js`, `frontend/services/storage.js` | frontend state, IndexedDB, optional assignment-brief API | IndexedDB for normal assignment records; a JSON snapshot is also stored with a saved server-side brief | Preserve and clarify snapshot semantics |
-| Assignment briefs | Implemented; runtime workflow not independently validated | `backend/routes/assignment-briefs.js`, `backend/controllers/assignment-briefs.js`, `backend/repositories/assignment-briefs.js`, `frontend/features/assignment-brief.js` | raw upload validation, text validation, PostgreSQL | PostgreSQL stores assignment snapshot, extracted text, and file metadata; original file bytes are not retained | Preserve; clarify payload and lifecycle boundaries |
-| Flashcards | Working | `frontend/features/flashcards.js`, `backend/controllers/cards.js`, `backend/repositories/cards.js` | review engine, DB | PostgreSQL | Preserve and keep authoritative |
-| Review engine | Working | `backend/services/sm2.js`, `backend/controllers/review.js` | cards, user answers | PostgreSQL | Preserve |
-| Learning review UI | Working | `frontend/features/learning.js` | flashcards, review API | PostgreSQL + local UI state | Preserve |
-| Quiz | Working | `frontend/features/quiz.js` | AI generation, local storage | IndexedDB + AI output | Preserve |
-| Timer | Working | `frontend/features/timer.js` | local browser state | IndexedDB | Preserve |
-| Progress | Working | `frontend/features/progress.js` | review stats, UI data | PostgreSQL/local mix | Preserve and clarify ownership |
-| Tutor | Implemented; tests cover key response validation paths | `frontend/features/tutor.js`, `backend/controllers/ai.js`, `backend/services/ai/index.js` | AI provider, message parsing, local tutor history | Conversation history in IndexedDB; AI requests are served by backend | Preserve and modularize AI orchestration |
-| Backup / import | Working | `frontend/features/settings.js`, `frontend/shared/backup-data.js` | data validation and merging | Local browser export/import | Preserve |
-| Calendar | Working | `frontend/features/calendar.js`, `frontend/shared/calendar-data.js` | class and assignment data | Local + backend-derived data | Preserve |
-| Settings | Working | `frontend/features/settings.js` | local settings and backup helpers | IndexedDB + localStorage | Preserve |
+“Implemented” does not mean production deployment was verified. The current suite has no browser-level E2E tests, and its PostgreSQL integration test was skipped.
 
-## Findings by feature area
+## Inventory
 
-“Implemented” describes code presence and the extent of repository tests; it is not a claim that every end-to-end production workflow was manually exercised.
+| Feature | Status | Frontend | Backend | Database / data owner | Dependencies and integrations | Tests and known concerns |
+|---|---|---|---|---|---|---|
+| Authentication/session | Implemented for the single-admin model; multi-user authorization missing | `frontend/app/auth.js`, `frontend/services/api.js` | `backend/routes/auth.js`, `backend/middleware/request.js`, `backend/app/index.js` | PostgreSQL `session`; admin credentials from environment | Express session, PostgreSQL session store, bcryptjs | `test/auth.test.js`; request-level only. Cards/decks do not have multi-user ownership. |
+| Dashboard | Requires verification | `frontend/features/dashboard.js` | None dedicated | IndexedDB-backed local state plus server-derived review stats | Shared state, event bus | No dedicated dashboard E2E test identified. |
+| Documents/materials | Partially implemented | `frontend/features/documents.js`, `frontend/services/storage.js` | AI endpoints accept selected context; no general document CRUD API | Document records/content in browser IndexedDB | Browser file/text processing, Tutor local material index | No real-browser persistence test identified. No OCR; no object storage or vector index. |
+| Notes | Partially implemented | `frontend/features/notes.js` | `backend/controllers/ai.js` generates notes | Notes in IndexedDB; generation is not generally persisted server-side | AI provider, local storage, export/import | Parser/validation tests in `test/services.test.js`; full user workflow unverified. File is 1,132 lines in this checkout. |
+| Classes/courses | Partially implemented | `frontend/features/classes.js` | No general course/class CRUD API | IndexedDB | Calendar, assignments, Tutor context | No course-domain backend or dedicated E2E test. |
+| Assignments/calendar | Partially implemented | `frontend/features/assignments.js`, `frontend/features/calendar.js`, `frontend/shared/calendar-data.js` | Assignment-brief API only; not general assignment CRUD | Ordinary assignment/class records in IndexedDB; assignment JSON snapshot may be saved with a brief in PostgreSQL | Calendar derivation and optional brief API | Calendar data unit tests. Cross-store snapshot consistency and full workflows unverified. |
+| Assignment briefs | Requires verification | `frontend/features/assignment-brief.js` | `backend/routes/assignment-briefs.js`, `backend/controllers/assignment-briefs.js`, `backend/repositories/assignment-briefs.js`, `backend/services/assignment-briefs.js` | `assignment_workspaces` stores owner key, assignment snapshot, extracted text and file metadata; original bytes not retained | Raw octet-stream validation, extracted/pasted text | No dedicated DB integration run in this audit; upload lifecycle needs explicit retention/deletion policy. |
+| Flashcards/decks | Implemented for selected API behavior; database integration unverified | `frontend/features/flashcards.js` | `backend/controllers/cards.js`, `backend/repositories/cards.js`, deck repository and card service | PostgreSQL `decks`, `cards`; local legacy backup/migration data in IndexedDB | AI generation, import/export, soft-delete/restore | Route/card validation tests; DB integration skipped. File is 656 lines. Global single-admin records, not multi-user scoped. |
+| Review/learning engine | Implemented | `frontend/features/learning.js` | `backend/controllers/review.js`, `backend/services/sm2.js`, review repository | PostgreSQL `reviews` and card scheduling fields | SM-2 scheduling | `test/sm2.test.js`; DB workflow integration skipped. No adaptive mastery/confidence model. |
+| Quiz/assessment | Partially implemented | `frontend/features/quiz.js` | AI quiz generation in `backend/controllers/ai.js` | Quiz history in IndexedDB; generated quizzes/results not generally server-persisted | AI generation and local scoring | Parser/helper tests; browser workflow unverified. No formal evaluation engine or Test Mode backend restrictions. |
+| Tutor | Conflicting with approved adaptive teaching requirement | `frontend/features/tutor.js`, `frontend/features/tutor-sources.js`, `frontend/features/tutor-markdown.js` | Tutor handler in `backend/controllers/ai.js`; provider in `backend/services/ai/index.js`; prompts in `backend/config/prompts.js` | Conversation history and material index in browser memory/IndexedDB; request references supplied by browser | OpenAI-compatible provider, locally selected references, source validation | Route tests cover some validation. General prompt prohibits direct solutions universally; no six-mode contract, server-managed retrieval, or backend Test Mode policy found. File is 746 lines. |
+| Progress/insights | Partially implemented | `frontend/features/progress.js`, `frontend/features/dashboard.js` | `backend/controllers/review.js` exposes topic stats | Mix of PostgreSQL review stats and local activity | Review and local study records | No tests for full progress reconciliation. Activity must not be interpreted as mastery. |
+| Timer/study sessions | Requires verification | `frontend/features/timer.js` | None dedicated | IndexedDB | Browser timing and local history | No browser E2E test; persistence/interrupted-session behavior not verified. |
+| Settings/backup/import | Partially implemented | `frontend/features/settings.js`, `frontend/shared/backup-data.js` | Flashcard import/save APIs | Browser-local data plus PostgreSQL cards | IndexedDB, localStorage preferences, JSON export/import | Backup data validator tests; actual browser file/import flow not E2E tested. |
+| AI orchestration/evaluation | Partially implemented / target components missing | Tutor and generation features | `backend/services/ai/index.js`, `backend/services/ai-content.js`, AI controller | No dedicated orchestration/evaluation database | OpenAI-compatible API, fallbacks and rate limits | Mock-provider route test exists. No Model Gateway, Prompt Manager, Context Manager, Memory Manager, Tool Registry, Evaluation Engine or usage-monitoring module. |
+| Fine-tuning/model improvement | Missing | None identified | None identified | None | None | Approved direction is evidence-driven application improvement first; user data is not automatically training data. |
 
-### 1. Authentication
+## Preservation recommendations
 
-- Status: robust and stable
-- Scope: session login/logout plus protections for `/api/*` routes
-- Files: `backend/routes/auth.js`, `backend/middleware/request.js`, `backend/app/index.js`
-- Recommendation: preserve as the formal security boundary for the app
-
-### 2. Study and learning workflows
-
-- Status: strongly implemented
-- Scope: cards, review scheduling, learning flow, quiz behavior
-- Files: `backend/services/sm2.js`, `backend/controllers/review.js`, `frontend/features/learning.js`
-- Recommendation: treat as a core domain with explicit server authority
-
-### 3. Local workspace features
-
-- Status: active and useful
-- Scope: notes, documents, timer, classes, assignments, dashboard, settings
-- Files: `frontend/features/*`, `frontend/services/storage.js`
-- Recommendation: keep local-first for browser-only offline usage and clarify when backend persistence is desired
-
-### 4. AI tutor and academic support
-
-- Status: partially integrated but not yet boundary-clean
-- Scope: tutor interaction, prompts, source validation, model fallback
-- Files: `backend/services/ai/index.js`, `backend/controllers/ai.js`, `frontend/features/tutor.js`
-- Recommendation: split provider logic, prompt orchestration, and response validation into separate service layers
-
-### 5. Assignment-brief workflows
-
-- Status: present but not yet fully cleanly separated
-- Scope: file upload and brief parsing flow
-- Files: `backend/controllers/assignment-briefs.js`, `backend/routes/assignment-briefs.js`, `frontend/features/assignment-brief.js`
-- Recommendation: continue to preserve the feature but normalize the domain ownership and validation boundaries
-
-## Preservation and refactoring recommendations
-
-- Preserve existing working workflows wherever they already meet user expectations.
-- Keep PostgreSQL authoritative where the app is already server-backed and durable.
-- Keep IndexedDB authoritative for local/offline user workspaces.
-- Refactor AI orchestration and assignment-brief handling into more explicit service boundaries before adding broader orchestration complexity.
-- Avoid rewriting any stable workflow that already works and has test coverage.
+Preserve the current session flow, flashcard/review behavior, local workspace, Tutor/generation UX, assignment/class/calendar workflows, and import/export behavior while improving their contracts. Keep PostgreSQL authoritative for server-backed records and IndexedDB for approved local/offline records. Do not migrate data or change behavior as part of this audit.

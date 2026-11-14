@@ -3,6 +3,18 @@
 **Version:** 0.1  
 **Purpose:** Maintain a chronological record of implementation, decisions, defects, and releases.
 
+## 2026-11-14 — Phase 0 review corrections
+
+**Status:** Implemented (documentation corrections); production/runtime claims remain Unverified
+
+- Corrected the Phase 0 system, feature, storage, and gap analyses against the actual repository, including migration history, deployment artifacts, test-layer limitations, Tutor behavior, local retrieval, and current storage ownership.
+- Replaced the proposed Phase 1 backlog with a dependency-aware Core Infrastructure and Security proposal, as identified by the supplied Stage 12 review. Updated the refactoring plan and technical roadmap to keep Phase 1 distinct from later AI architecture work.
+- Expanded the decision log with explicit statuses and unresolved blueprint decisions. Added `docs/architecture/PHASE_0_REVIEW_RESPONSE.md`.
+- Confirmed during inspection that storage uses the native IndexedDB API (not the `idb` package), `.env.example` is absent, and the checked-in feature module line counts differ from the submitted review.
+- No application code, prompts, APIs, schema, dependencies, or production services were changed.
+- Verification: inspected relevant code/docs and repository inventory. No tests were rerun because this change is documentation-only; the latest prior `npm test` run reported 24 passed, 0 failed, 1 skipped (dedicated `TEST_DATABASE_URL` unavailable).
+- Open: production smoke/backup verification, browser E2E, database integration, and independent access to all twelve blueprint source documents remain outstanding. Phase 1 requires explicit approval.
+
 ## 2026-11-10 — Groq AI provider migration
 
 **Status:** Implemented

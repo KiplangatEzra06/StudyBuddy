@@ -1,101 +1,87 @@
 # Refactoring Plan
 
-## Objective
+## Status and scope
 
-Refactor the StudyBuddy application incrementally to achieve clearer domain boundaries without destabilizing the already working features.
+This is a dependency-aware proposal only. The supplied review identifies the approved Phase 1 scope as Core Infrastructure and Security. No Phase 1 implementation or production change is authorized until the user explicitly approves the audit and plan.
 
-## Refactoring principles
+The existing application is a modular monolith; do not rewrite it or introduce microservices. Preserve the PostgreSQL/IndexedDB hybrid direction. Migrations, new storage infrastructure, behavior changes and production actions require explicit decisions and safe verification.
 
-- Preserve working behavior first
-- Make domain ownership explicit
-- Avoid full rewrites while the app remains functional
-- Refactor in dependency order
-- Keep rollback paths simple
+## Principles
 
-## Recommended order
+- Preserve existing workflows and user data.
+- Resolve security and recovery foundations before expanding persistence or AI capabilities.
+- Keep HTTP, business logic and data access boundaries clear; do not split components into services for appearance alone.
+- Make changes small, testable and reversible.
+- Distinguish approved requirements from proposed implementation choices.
+- Do not add OCR in v1; keep future document processing extensible.
+- Do not treat activity as mastery or student content as automatic training data.
 
-### 1. Ownership and storage boundaries
+## Phase 1 sequence: core infrastructure and security
 
-Focus:
+### 1. Canonical configuration and safe setup
 
-- define authoritative storage for each domain
-- confirm PostgreSQL vs IndexedDB ownership for each feature
-- document the rules and keep them stable
+Reconcile environment variable requirements, missing `.env.example` reference, startup validation, and local/deployment instructions. Template values must be names/placeholders only. Preserve existing startup behavior until tests and deployment expectations are explicit.
 
-Why first:
+### 2. Database migration, backup and recovery
 
-This is the foundation for all later refactoring. Without clear ownership, other refactors may create duplicate or conflicting data paths.
+Choose a migration-history approach and define backup/restore objectives before schema growth. Test migration and restore against disposable/non-production databases. Do not run automatic production migrations or destructive changes without a separate approved release plan.
 
-### 2. AI service boundary hardening
+### 3. Identity, authorization and data ownership
 
-Focus:
+Document the current single-admin scope and define ownership checks for every server-backed resource. If multi-user access is approved later, add schema/backfill, repository scoping, and cross-owner tests before exposing it. Do not silently convert the current admin identity model.
 
-- isolate provider configuration and rate-limit logic
-- standardize request/response validation
-- consolidate fallback behavior into a single domain contract
+### 4. API and file security
 
-Why second:
+Audit route validation, body/content-type limits, CSRF/session policy, rate limiting, error responses, file processing and untrusted AI context. Preserve API shapes unless separately approved. Document assignment brief metadata/text versus original bytes accurately. Assessment restrictions must be enforced by backend policy, not prompt text alone.
 
-AI flows are central to the product and should be stabilized before more advanced orchestration and memory features are added.
+### 5. Privacy, governance and safe observability
 
-### 3. Assignment-brief normalization
+Map sensitive data flows and retention/deletion. Keep uploaded/retrieved material untrusted. Conversations and uploaded materials are not training data by default. Establish useful logging/health/incident practices without exposing credentials, session tokens or unnecessary learning content.
 
-Focus:
+### 6. Automated verification foundations
 
-- clean service boundaries for upload, validation, and persistence
-- decide whether the feature stays browser-first or becomes stronger server-backed
+Maintain current unit/request tests, enable dedicated database integration, add security regression coverage, then select browser E2E coverage for IndexedDB-critical workflows. Add CI only with safe test isolation; tests must not use production database credentials.
 
-Why third:
+### 7. Deployment/release verification
 
-The feature is present and useful, but it is one of the clearest examples of a workflow that still needs ownership clarity.
+Align Render documentation with config, migration, backup, smoke-test and rollback procedures. Deployment remains unverified until a staging/live smoke test is actually run. Production action requires explicit user approval.
 
-### 4. Frontend state and feature dependency cleanup
+The detailed objective, dependencies, acceptance criteria, verification, rollback, risks and complexity for each item are in `PHASE_1_BACKLOG.md`.
 
-Focus:
+## Subsequent architecture work (not Phase 1 authorization)
 
-- reduce direct coupling between feature modules
-- keep the single-user app model but standardize and document shared-state conventions
+After infrastructure/security completion and explicit approval:
 
-Why fourth:
+1. Define per-feature data ownership and lifecycle contracts; decide local versus server authority per domain.
+2. Refine AI orchestration boundaries (provider gateway, prompt/context building, response validation, evaluation) without presuming separate deployable services.
+3. Implement distinct Tutor modes and adaptive policies, separating ordinary tutoring from backend-enforced assessment restrictions.
+4. Define knowledge source provenance/retrieval, document processing formats, and future OCR extension. OCR stays deferred beyond v1.
+5. Define memory visibility, correction, retention, deletion and synchronization before storing learner memories.
+6. Develop adaptive learning measures only with validated evidence; keep mastery, confidence, recency and consistency distinct. Activity/completion alone is not mastery.
+7. Add exam prediction only after the rule requiring three verified papers is enforced; below threshold, provide descriptive analysis only.
+8. Decompose large feature modules only where bounded responsibilities and tests justify it.
 
-This improves maintainability without changing product behavior.
+These are architectural directions, not approved implementation choices for new vendors, schemas, models or policies. Resolve related items in `TECHNICAL_DECISION_LOG.md` first.
 
-### 5. User-facing documentation and migration copy cleanup
+## Features to preserve
 
-Focus:
+- Single-admin session authentication and current API behavior.
+- Flashcard/deck workflows, import safeguards, and SM-2 review scheduling.
+- Local documents, notes, classes, assignments, quizzes, timer history and Tutor conversations.
+- Assignment brief validation and current server persistence behavior.
+- Tutor source grounding, while addressing the general prompt's direct-answer conflict in a separately approved behavior change.
+- Backup/export/import and undo behavior.
 
-- remove stale wording from the app shell
-- align docs with the actual provider stack
+## Migration and rollback strategy
 
-Why fifth:
+1. Capture current schema, record shapes and baseline tests before changing persistence.
+2. Use a dedicated test database and representative fixtures; never reset production.
+3. For any local-data migration, preserve the original IndexedDB data and backup until import counts/content are verified.
+4. Make imports idempotent and define conflict/deletion behavior before enabling sync.
+5. Deploy schema changes through an approved, staged procedure with a tested recovery path.
+6. Change reads/writes behind reversible, bounded steps; keep old reads or exports until the new path is verified.
+7. Record migration outcome and rollback trigger. A passing unit test is not a migration or production verification.
 
-This reduces confusion and makes the architecture easier to explain and maintain.
+## Stop conditions
 
-## Features to preserve during refactoring
-
-- Authentication and session flow
-- Review engine and SM-2 behavior
-- Flashcard generation and persistence
-- Assignment and class workflows
-- Notes and document local workspace support
-- Tutor and AI flows
-- Backup and import capabilities
-
-## Migration strategy
-
-1. Start with the strongest documented boundaries and add explicit ownership rules.
-2. Introduce or adjust service contracts where logic currently crosses boundaries too freely.
-3. Keep feature-level tests passing before and after each refactor stage.
-4. Avoid changing storage models until ownership is documented and validated.
-5. Use small, sequential refactor steps with rollback ready at each phase.
-
-## Rollback considerations
-
-- Prefer staged refactors with reversible changes.
-- Keep existing feature tests as guardrails.
-- Make any storage convention changes explicit and reversible.
-- Do not combine unrelated refactors in the same commit when the ownership boundary is uncertain.
-
-## Final recommendation
-
-The safest path is not a rewrite. The safest path is a measured refactor that preserves the working app while formalizing ownership, AI orchestration, and storage boundaries in the order above.
+Pause for approval if a change requires destructive migration, changes user-facing Tutor assessment behavior, adds a dependency/vendor/service, changes retention of user material, expands to multiple users, or deploys to production.

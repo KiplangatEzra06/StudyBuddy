@@ -114,6 +114,8 @@ Do not clear IndexedDB as part of a migration until the cloud copy has been veri
 
 ## 6. November implementation roadmap
 
+The dated sequence below is a planning baseline, not evidence of completed work or authorization to deploy. The user-provided Stage 12 review identifies the approved Phase 1 scope as **Core Infrastructure and Security**; this takes precedence over the earlier proposed Notes cloud-persistence pilot and AI-tutor-first ordering below. The Phase 1 implementation backlog is documented in `docs/architecture/PHASE_1_BACKLOG.md` and requires explicit user approval before implementation. The underlying twelve-stage source files were not found in the repository and should be added or linked for future independent verification.
+
 ### Nov 9–15: audit and design
 - Map every feature to its frontend module, API route, service, repository, and storage location.
 - Verify the live app's critical workflows.
@@ -124,16 +126,16 @@ Do not clear IndexedDB as part of a migration until the cloud copy has been veri
 
 **Exit criteria:** an evidence-based architecture map, prioritized defect list, and approved migration sequence.
 
-### Nov 16–22: architecture and storage
-- Establish consistent module boundaries.
-- Move one low-risk domain (Notes was proposed as a pilot) through the cloud persistence path.
-- Add validation, ownership checks, error handling, and tests.
-- Add migration/import tooling and verification.
-- Confirm session and user ownership behavior.
+### Phase 1: core infrastructure and security
+- Establish canonical configuration and safe setup.
+- Decide on migration history and backup/recovery before schema expansion.
+- Define identity, authorization, data ownership, API validation, and secure file handling.
+- Establish privacy, logging/monitoring, test/CI, and deployment verification foundations.
+- Preserve the current local/cloud storage boundary until a domain-specific migration is approved.
 
-**Exit criteria:** the pilot survives refresh and a new session, data is correctly scoped, and migration can be repeated safely.
+**Exit criteria:** approved security/infrastructure policies are implemented and verified on non-production systems; see the dependency-aware backlog and do not infer production readiness from documentation alone.
 
-### Nov 23–29: AI tutor and connected learning
+### Subsequent AI tutor and connected-learning work (requires separate approval)
 - Separate provider integration from tutor business logic.
 - Add context selection and clear context boundaries.
 - Implement or refine tutor modes where feasible.
@@ -143,7 +145,7 @@ Do not clear IndexedDB as part of a migration until the cloud copy has been veri
 
 **Exit criteria:** tutor workflows are predictable, errors are handled, and generated study content can be reviewed before saving.
 
-### Nov 30: stabilization
+### Stabilization (requires deployment approval)
 - Run regression tests.
 - Verify production workflows.
 - Review logs and known defects.

@@ -2,93 +2,88 @@
 
 ## Executive summary
 
-StudyBuddy uses a hybrid storage model:
+The approved direction is PostgreSQL as the authoritative store for server-backed records and IndexedDB for approved offline functionality, local caching, and queued local operations. The current implementation is a transitional hybrid: several important workspace domains are local-only, and a general synchronization queue/protocol was not identified. Do not treat all IndexedDB records as replicas or move them without an approved migration plan.
 
-- PostgreSQL as the durable, authoritative application database
-- IndexedDB as the local browser workspace for app-specific offline and local-only data
+## Current PostgreSQL implementation
 
-This hybrid model is consistent with the approved architecture and should be treated as a deliberate boundary, not a temporary accident.
+`db/pool.js` creates a `pg.Pool` using `DATABASE_URL`; startup requires the URL. No ORM was identified. `db/schema.sql` currently creates or updates:
 
-## PostgreSQL storage
+| Table | Current contents / relationship |
+|---|---|
+| `session` | `connect-pg-simple` session store |
+| `decks` | Deck names; no user ownership column |
+| `cards` | Card content, schedule/review fields and metadata; `deck_id` references `decks` with cascade delete |
+| `reviews` | Review events referencing cards with cascade delete |
+| `assignment_workspaces` | Composite key `(owner_id, assignment_id)`; JSON assignment snapshot, brief metadata, extracted text/status |
 
-### Current implementation
+Other observed database facts:
 
-PostgreSQL is configured in `db/pool.js` and requires `DATABASE_URL` at startup. The database connection is created via `new Pool({ connectionString: process.env.DATABASE_URL, ... })`.
+- Indexes cover due dates, topic/deck, soft deletion, review card/time, session expiry, and assignment owner/update time.
+- Assignment brief requests validate file bytes, but original bytes are not retained in PostgreSQL or identified external object storage.
+- AI output is not generally persisted by generation endpoints; cards are persisted when explicitly saved/imported.
+- Cards/decks/reviews are not multi-user scoped; assignment workspaces use an owner key derived from the configured username.
 
-### Database tables and records currently stored in PostgreSQL
+## Migration and recovery
 
-The schema defines:
+- `npm run migrate` reads and executes the complete `db/schema.sql`.
+- The schema uses `IF NOT EXISTS`, conditional `ALTER`, and guarded constraints, so rerunning is intended to be idempotent.
+- There are no ordered/versioned migration files or migration ledger.
+- `npm start` does not run migrations; deployment instructions do not establish an automatically verified migration stage.
+- No backup schedule, restore runbook, point-in-time recovery setting, or restore test was verified.
+- The choice of migration framework and production backup approach remains unresolved. Do not change production data during planning.
 
-- `session` — server-side session records
-- `decks`, `cards`, and `reviews` — server-backed flashcard and review state
-- `assignment_workspaces` — owner-scoped assignment JSON snapshot, brief identifiers/metadata, extracted text, and status
+Risks: schema order/history is difficult to audit; schema changes may be safe to rerun but are not necessarily reversible; recovery capability is unknown without an independently verified backup and restore test.
 
-The AI generation endpoints do not generally persist generated notes, quizzes, or tutor messages. Generated cards enter PostgreSQL when explicitly saved/imported. Assignment brief upload bytes are validated but are not persisted as file blobs in PostgreSQL or an object store.
+## Current IndexedDB and localStorage implementation
 
-### Gap analysis
-
-PostgreSQL is authoritative for server-backed sessions, cards/decks/reviews, and saved assignment workspaces. There is no general PostgreSQL CRUD API for documents, notes, classes, assignments, quizzes, timer sessions, or tutor conversations. A feature-to-table ownership map should be maintained as server persistence expands.
-
-## IndexedDB storage
-
-### Current implementation
-
-The frontend storage service stores values in one IndexedDB database (`margin-db`) with one key/value object store (`kv`). Current keys include:
+`frontend/services/storage.js` uses the browser-native IndexedDB API (there is no `idb` package dependency). It opens one database, `margin-db`, with one object store, `kv`, and stores whole values by string key. Keys include:
 
 - `documents`, `notes`, `classes`, `assignments`
 - `quizResults`, `timerSessions`, `tutorConversations`
-- `deletedRecords` and note/notebook metadata keys
+- `deletedRecords`, note/notebook metadata
 - `flashcards-local-backup` and migration-related values
 
-UI preferences also use `localStorage`; they are not stored in IndexedDB.
+UI preferences use `localStorage`. This is not a normalized domain schema and no general offline operation queue/sync protocol was found. Approved future use of IndexedDB includes local caches and queued operations; queues, replay, conflict handling and idempotency are not established in the current code.
 
-### Strengths
+Storage helper behavior is significant: `idbSet`/`idbSetMany` catch failures, log a warning and return `false`; `idbGet` returns `undefined` on failure as well as for a missing key. Callers must inspect save outcomes and, where needed, distinguish unavailable storage from a missing record.
 
-- Well suited for a single-user desktop-style study app
-- Provides browser-local persistence and permits local feature use without a server CRUD endpoint
-- Keeps user workspace data close to the browser without forcing server CRUD for every ephemeral action
+## Ownership matrix
 
-### Risks and concerns
+| Data | Current store | Current authority / concern |
+|---|---|---|
+| Login sessions | PostgreSQL | Server authoritative |
+| Decks, cards, review scheduling/history | PostgreSQL | Server authoritative for current app flow; records not multi-user scoped |
+| Classes and ordinary assignments | IndexedDB | Browser-local only; no general server CRUD |
+| Assignment brief workspace | PostgreSQL snapshot plus local assignment record | Dual representation; explicit source-of-truth/update/delete behavior must be retained |
+| Documents and notes | IndexedDB | Browser-local; AI generation may consume selected content but does not generally persist generated output server-side |
+| Quiz history, timer sessions, Tutor conversations | IndexedDB | Browser-local, not server-synced |
+| UI preferences | localStorage | Browser-specific |
+| Original assignment brief file bytes | Not retained by server | Only validated in request; decide whether durable file retrieval is required |
+| Embeddings/vector index | Not present | No vector database or embedding schema identified |
 
-- The helper catches IndexedDB failures and returns `false`/`undefined`, so callers must check results to avoid treating failed writes as successful.
-- The flashcard migration/import path has separate local backup and server save behavior that must preserve its retry guarantees.
-- There is no general synchronization protocol between IndexedDB records and PostgreSQL; the stores mostly own distinct records rather than acting as replicas.
-- A future feature expansion may need a stronger local-to-cloud reconciliation model
+## Documents, retrieval, OCR and files
 
-## File and document storage
+- Document UI/data handling is in `frontend/features/documents.js` and `frontend/services/storage.js`.
+- Tutor material chunking, indexing and retrieval currently occur in `frontend/features/tutor-sources.js` in the browser. Selected references are included with the Tutor request; this is not server-managed retrieval or a vector database.
+- Assignment brief upload validation is a server request; `assignment_workspaces` stores metadata and extracted/pasted text, not original bytes.
+- OCR is not implemented and is explicitly deferred beyond v1. Keep document processing extensible for OCR later; do not introduce it as Phase 1 work without approval.
+- Ownership links between original files, extracted text, metadata, chunks and future embeddings are not yet represented as a server-side model.
 
-The app includes file handling and study materials, but the repository still treats these as mostly browser-local features rather than full server-managed document stores.
+## Migration and offline-sync risks
 
-Observed reality:
+1. Migrating local notes/documents/classes/assignments/quizzes/timer/Tutor data requires inventorying actual record shapes and IDs, export/backup, idempotent import, validation, count/content verification, and rollback.
+2. Do not clear IndexedDB until cloud data has been verified and a rollback decision approved.
+3. Ordinary assignment records are local while assignment briefs can save a PostgreSQL snapshot; update/delete conflict rules need definition before either representation changes.
+4. Flashcard legacy migration needs to preserve backup and retry behavior; the completion marker must not be written before successful import.
+5. Any future queued operations need stable IDs, idempotency, retry bounds, conflict policy, deletion/tombstone semantics, and user-visible failure/recovery.
+6. If multi-user access is introduced, add ownership to all relevant records and enforce it on every read/write before exposing cross-account access.
+7. File retention/deletion must propagate to extracted text, chunks, indexes, caches and backups if those stores are later added.
 
-- Local document workflows are in `frontend/features/documents.js`
-- Browser storage reads and writes are handled in `frontend/services/storage.js`
-- Assignment-brief bytes are sent to the server for validation, but the schema persists extracted text and metadata rather than original file bytes.
-- The app provides browser import/export and local backup workflows.
+## Recommendations and unresolved choices
 
-This is reasonable for a single-user local workspace but should be treated as a deliberate local authority boundary.
-
-## Offline synchronization concerns
-
-The current architecture is suitable for desktop-style offline usage, but several considerations remain:
-
-1. There is no formal protocol for synchronizing the same records across IndexedDB and PostgreSQL; current data is mostly partitioned by feature.
-2. Flashcard import/migration and assignment snapshots have cross-store behavior that should keep explicit merge/retry rules.
-3. If additional features become server-backed, IDs, conflict handling, retries, and deletions/tombstones will need a defined contract.
-
-## Migration risks
-
-The biggest migration risks are not in the existence of PostgreSQL; they are in:
-
-- moving browser-owned records to PostgreSQL without a verified export/import and reconciliation plan
-- loss or duplication during the existing browser flashcard migration/import flow
-- assignment brief metadata/text being mistaken for retained original files
-- stale references to previous provider implementations or older data flows
-
-## Recommended storage strategy
-
-1. Define PostgreSQL as authoritative for durable server domain data.
-2. Define IndexedDB as authoritative for local workspace, offline, and browser-specific state.
-3. Keep backups and import/export flows as local browser features unless a clear server-owned need emerges.
-4. Add explicit reconciliation rules before broadening the app beyond single-user workflows.
-5. Treat data ownership as a first-class architectural contract, not a side effect of implementation convenience.
+- Preserve the approved principle: PostgreSQL is authoritative for server-backed records; IndexedDB provides approved offline/local caching and queued operations.
+- Keep current local-only features local until a domain-level migration is approved and tested.
+- Create an explicit ownership/lifecycle contract for every feature, including whether IndexedDB is authoritative, a cache, a queue, or a draft store.
+- Decide on versioned migrations and backup/recovery verification before adding production schema expansion.
+- Resolve whether uploaded assignment files must be retrievable, then choose retention/storage accordingly.
+- Define offline queue and conflict behavior only when a specific synchronization feature is approved.
