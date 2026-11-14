@@ -11,6 +11,69 @@ process.env.ADMIN_PASSWORD_HASH = bcrypt.hashSync('secret-password', 12);
 process.env.SESSION_SECRET = 'test-session-secret-that-is-at-least-32-chars';
 
 const app = require('../server');
+const { generate } = require('../backend/services/ai');
+
+test('AI client rebinds when provider settings change', async () => {
+  const serverOneRequests = [];
+  const serverTwoRequests = [];
+
+  const serverOne = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    serverOneRequests.push(JSON.parse(body));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: 'from-server-one' } }] }));
+  });
+  const serverTwo = http.createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    serverTwoRequests.push(JSON.parse(body));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ choices: [{ message: { content: 'from-server-two' } }] }));
+  });
+
+  await new Promise(resolve => serverOne.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => serverTwo.listen(0, '127.0.0.1', resolve));
+
+  const originalBaseUrl = process.env.AI_BASE_URL;
+  const originalApiKey = process.env.AI_API_KEY;
+  const originalModel = process.env.AI_MODEL;
+  const originalFallbackModels = process.env.AI_FALLBACK_MODELS;
+
+  try {
+    process.env.AI_BASE_URL = `http://127.0.0.1:${serverOne.address().port}/v1`;
+    process.env.AI_API_KEY = 'first-key';
+    process.env.AI_MODEL = 'model-one';
+    process.env.AI_FALLBACK_MODELS = '';
+
+    const firstResult = await generate({ messages: [{ role: 'user', content: 'first question' }], maxTokens: 32 });
+    assert.equal(firstResult, 'from-server-one');
+    assert.equal(serverOneRequests.length, 1);
+    assert.equal(serverTwoRequests.length, 0);
+
+    process.env.AI_BASE_URL = `http://127.0.0.1:${serverTwo.address().port}/v1`;
+    process.env.AI_API_KEY = 'second-key';
+    process.env.AI_MODEL = 'model-two';
+    process.env.AI_FALLBACK_MODELS = '';
+
+    const secondResult = await generate({ messages: [{ role: 'user', content: 'second question' }], maxTokens: 32 });
+    assert.equal(secondResult, 'from-server-two');
+    assert.equal(serverTwoRequests.length, 1);
+    assert.equal(serverOneRequests.length, 1);
+  } finally {
+    if (originalBaseUrl === undefined) delete process.env.AI_BASE_URL; else process.env.AI_BASE_URL = originalBaseUrl;
+    if (originalApiKey === undefined) delete process.env.AI_API_KEY; else process.env.AI_API_KEY = originalApiKey;
+    if (originalModel === undefined) delete process.env.AI_MODEL; else process.env.AI_MODEL = originalModel;
+    if (originalFallbackModels === undefined) delete process.env.AI_FALLBACK_MODELS; else process.env.AI_FALLBACK_MODELS = originalFallbackModels;
+
+    await new Promise((resolve, reject) => {
+      serverOne.close(error => error ? reject(error) : resolve());
+    });
+    await new Promise((resolve, reject) => {
+      serverTwo.close(error => error ? reject(error) : resolve());
+    });
+  }
+});
 
 test('extracted routes and frontend modules are mounted correctly', async () => {
   const unauthenticatedHealth = await request(app).get('/api/ai/health');

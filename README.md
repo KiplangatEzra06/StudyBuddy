@@ -33,7 +33,7 @@ Set these values in `.env`:
 - `AI_BASE_URL`: OpenAI-compatible API URL (Groq: `https://api.groq.com/openai/v1`)
 - `AI_API_KEY`: API key for the configured AI provider
 - `AI_MODEL`: primary model (default: `openai/gpt-oss-120b`)
-- `AI_FALLBACK_MODELS`: comma-separated fallback models (default: `openai/gpt-oss-20b,qwen/qwen3.8-27b`)
+- `AI_FALLBACK_MODELS`: comma-separated fallback models (default: `openai/gpt-oss-20b,qwen/qwen3-32b`)
 - `DATABASE_URL`: Neon pooled PostgreSQL connection string with `sslmode=require`
 - `PORT`: optional, defaults to `3000`
 
@@ -94,7 +94,7 @@ Add these environment variables in Render:
 - `AI_BASE_URL=https://api.groq.com/openai/v1`
 - `AI_API_KEY`
 - `AI_MODEL=openai/gpt-oss-120b`
-- `AI_FALLBACK_MODELS=openai/gpt-oss-20b,qwen/qwen3.8-27b`
+- `AI_FALLBACK_MODELS=openai/gpt-oss-20b,qwen/qwen3-32b`
 - `DATABASE_URL=<Neon pooled PostgreSQL connection string with sslmode=require>`
 
 Render provides `PORT` automatically.

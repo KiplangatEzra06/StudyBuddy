@@ -1,9 +1,10 @@
 const OpenAI = require('openai');
 
 let client;
+let clientSignature = null;
 const limitedModels = new Map();
 const MODEL_LIMIT_MS = 60 * 1000;
-const DEFAULT_FALLBACK_MODELS = 'openai/gpt-oss-20b,qwen/qwen3.8-27b';
+const DEFAULT_FALLBACK_MODELS = 'openai/gpt-oss-20b,qwen/qwen3-32b';
 const MAX_TOTAL_TOKENS = 6000;
 const ATTACHMENT_MARKERS = ['\nSource text:\n', '\nNotes:\n'];
 
@@ -192,22 +193,28 @@ function prepareMessages(messages, requestedMaxTokens) {
 }
 
 function getClient() {
-  if (!process.env.AI_API_KEY) {
+  const apiKey = String(process.env.AI_API_KEY || '').trim();
+  const baseURL = String(process.env.AI_BASE_URL || '').trim().replace(/\/+$/, '');
+
+  if (!apiKey) {
     const error = new Error('AI_API_KEY is not configured');
     error.status = 500;
     throw error;
   }
-  if (!process.env.AI_BASE_URL) {
+  if (!baseURL) {
     const error = new Error('AI_BASE_URL is not configured');
     error.status = 500;
     throw error;
   }
-  if (!client) {
+
+  const signature = `${baseURL}\n${apiKey}`;
+  if (!client || clientSignature !== signature) {
     client = new OpenAI({
-      baseURL: process.env.AI_BASE_URL,
-      apiKey: process.env.AI_API_KEY,
+      baseURL,
+      apiKey,
       maxRetries: 0
     });
+    clientSignature = signature;
   }
   return client;
 }
