@@ -61,6 +61,34 @@ Important runtime composition points:
 - `backend/app/index.js` composes the app, sessions, routers, static files, and error handling.
 - `db/pool.js` owns the PostgreSQL pool and query helpers.
 
+## Current architecture diagram
+
+```text
+Browser
+  public/index.html + frontend/app + frontend/features
+       | same-origin /api/* (session cookie + request header)
+       v
+  frontend/services/api.js
+       |
+       v
+Express app (server.js -> backend/app/index.js)
+  auth/session + request guards + rate limits
+       |
+       +--> routes -> controllers -> services -> repositories -> PostgreSQL
+       |       |           |            |             |
+       |       |           |            |             +-- decks/cards/reviews,
+       |       |           |            |                 assignment_workspaces
+       |       |           |            +-- AI provider (OpenAI-compatible API)
+       |       |           +-- validation and response handling
+       |       +-- auth, cards, review, AI, assignment briefs
+       |
+       +--> serves public assets and /frontend modules
+
+Browser-local persistence:
+  feature modules -> frontend/services/storage.js -> IndexedDB (margin-db/kv)
+  UI preferences -> localStorage
+```
+
 ## Existing functionality
 
 ### Authentication and access control
@@ -68,7 +96,8 @@ Important runtime composition points:
 - Single-user admin login with cookie sessions
 - `/api/auth/login`, `/api/auth/logout`, and `/api/auth/me` routes
 - Session persistence in PostgreSQL via `connect-pg-simple`
-- Same-origin API requests require session auth and JSON CSRF header enforcement
+- Same-origin API requests require JSON/CSRF checks; protected application API routes require a session
+- Auth routes are mounted before the protected API middleware; `/api/auth/me` reports session state and logout can be called without an authenticated session
 
 ### Study data and review engine
 
@@ -79,7 +108,8 @@ Important runtime composition points:
 ### Scheduling and school planning
 
 - Calendar data logic derives events from classes and assignments
-- Assignment and class workflows exist in both frontend modules and backend persistence
+- Classes and ordinary assignment records are stored in IndexedDB
+- Assignment-brief routes persist a workspace snapshot and brief metadata/text in PostgreSQL; this is not a general classes/assignments CRUD API
 
 ### AI features
 
@@ -98,6 +128,8 @@ Important runtime composition points:
 
 The app expects `DATABASE_URL` on startup and fails fast if missing. The `pg` pool is configured in `db/pool.js` and is the authoritative durable database connection for session and app records.
 
+The schema currently defines `session`, `decks`, `cards`, `reviews`, and `assignment_workspaces`. The latter stores assignment data snapshots alongside brief metadata and extracted text. The original uploaded file bytes are validated in the request but are not retained as a database blob or external object-store object. AI-generated content is not generally persisted by the AI endpoints; cards are persisted when the user saves/imports them.
+
 ### IndexedDB
 
 The browser stores many local records in IndexedDB, including:
@@ -111,6 +143,8 @@ The browser stores many local records in IndexedDB, including:
 - tutor history
 - local backup data
 
+The store is a single key/value object store (`margin-db`, `kv`) rather than a normalized per-domain schema. Failed IndexedDB operations are logged and surfaced to callers as `false` or `undefined` in the storage helper.
+
 ### Clear boundary
 
 The repository explicitly maintains a mixed-storage model:
@@ -122,25 +156,33 @@ This is consistent with the approved architecture direction and should be treate
 
 ## API inventory summary
 
-| Area | Endpoint concept | Auth | Notes |
+| Methods | Endpoint | Auth | Notes |
 | --- | --- | --- | --- |
-| health | `/health` | No | Basic liveness route |
-| auth | `/api/auth/login` | No | Session creation |
-| auth | `/api/auth/logout` | Yes | Session invalidation |
-| auth | `/api/auth/me` | Yes | Session status |
-| AI health | `/api/ai/health` | Yes | Validates AI provider connectivity |
-| tutor | `/api/ai` | Yes | Tutor interaction |
-| cards | `/api/cards/generate` | Yes | AI card generation |
-| notes | `/api/generate-notes` | Yes | AI notes generation |
-| quiz | `/api/generate-quiz` | Yes | AI quiz generation |
-| review | `/api/review/next` | Yes | Fetch next due card |
-| review | `/api/review/grade` | Yes | Grade review result |
-| assignment briefs | `/api/assignments/...` | Yes | Assignment brief workflow |
+| `GET` | `/health` | No | Basic liveness route |
+| `POST` | `/api/auth/login` | No | Session creation |
+| `POST` | `/api/auth/logout` | No | Destroys session if present |
+| `GET` | `/api/auth/me` | No | Reports current session state |
+| `GET` | `/api/ai/health` | Yes | Validates AI provider connectivity |
+| `POST` | `/api/ai` | Yes | Tutor interaction |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/api/decks[/:id]` | Yes | Deck list/create/rename/delete |
+| `GET`, `POST`, `PATCH`, `DELETE` | `/api/cards[/:id]` | Yes | Card list/create/update/delete; `POST /:id/restore`, `/import`, and `/save` also exist |
+| `POST` | `/api/cards/generate` | Yes | Generate topic cards |
+| `POST` | `/api/generate-flashcards` | Yes | Generate flashcards |
+| `POST` | `/api/generate-notes` | Yes | Generate notes |
+| `POST` | `/api/generate-quiz` | Yes | Generate quiz |
+| `GET` | `/api/review/next` | Yes | Fetch next due card |
+| `POST` | `/api/review/grade` | Yes | Grade review result |
+| `GET` | `/api/stats/topics` | Yes | Topic statistics |
+| `GET` | `/api/assignments/briefs` | Yes | List saved assignment briefs |
+| `PUT` | `/api/assignments/:assignmentId/brief/validate` | Yes | Validate uploaded brief bytes; body is raw octet-stream |
+| `PUT` | `/api/assignments/:assignmentId/brief` | Yes | Save assignment snapshot and brief metadata/text |
+| `DELETE` | `/api/assignments/:assignmentId/brief` | Yes | Remove saved brief |
 
 ## Deployment findings
 
-- The repository is structured for Render-style deployment.
-- The root `README.md` documents required environment variables, including `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `DATABASE_URL`, and session settings.
+- The root `README.md` documents a Render deployment recipe (`npm install`, `npm start`) and the required environment variables, including `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`, `DATABASE_URL`, and session settings.
+- No deployment manifest, Dockerfile, Procfile, or CI workflow was found in the repository inventory.
+- The production Render service itself was not inspected as part of this repository audit; deployed configuration and runtime behavior remain unverified.
 - Same-origin cookie auth is expected in production.
 - The app is designed to fail fast on missing required environment settings.
 
