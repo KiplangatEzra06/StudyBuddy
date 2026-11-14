@@ -5,8 +5,11 @@ const {
   malformedJsonError,
   parseJsonText,
   parseNotesResponse,
+  parseTutorAnswerTable,
+  tutorAnswerTableFallback,
   validateDocument,
-  validateReferences
+  validateReferences,
+  validateTutorAnswerTable
 } = require('../backend/services/ai-content');
 const {
   normalizeCardText,
@@ -57,6 +60,67 @@ test('notes parser preserves supported JSON and Markdown shapes', () => {
     keyConcepts: ['Concept'],
     body: 'Details'
   });
+});
+
+test('Tutor answer tables validate dimensions and remove fenced JSON from text', () => {
+  const parsed = parseTutorAnswerTable([
+    'Start with the first trace step.',
+    '',
+    '```answer_table',
+    '{"title":"Trace","columns":["Input","Output"],"rows":[{"label":"Step 1","cells":["x",""]}],"locked_cells":[[0,0]],"hint":"Apply the rule once."}',
+    '```',
+    '<!-- tutor_sources: {"sources":[{"type":"suggested_reading","title":"Official Documentation","detail":"truth tables"}]} -->'
+  ].join('\n'));
+
+  assert.equal(parsed.invalid, false);
+  assert.equal(parsed.text, 'Start with the first trace step.');
+  assert.deepEqual(parsed.sources, [{
+    type: 'suggested_reading',
+    title: 'Official Documentation',
+    detail: 'truth tables'
+  }]);
+  assert.deepEqual(parsed.answerTable, {
+    title: 'Trace',
+    columns: ['Input', 'Output'],
+    rows: [{ label: 'Step 1', cells: ['x', ''] }],
+    locked_cells: [[0, 0]],
+    hint: 'Apply the rule once.'
+  });
+  const prose = parseTutorAnswerTable('Explain the concept in prose.');
+  assert.equal(prose.answerTable, null);
+  assert.deepEqual(prose.sources, []);
+  assert.equal(validateTutorAnswerTable({
+    title: 'Invalid',
+    columns: ['A'],
+    rows: [{ label: 'Step', cells: ['', 'extra'] }],
+    locked_cells: [[0, 1]],
+    hint: 'Try again.'
+  }), null);
+  assert.equal(parseTutorAnswerTable('```answer_table\nnot json\n```').invalid, true);
+  assert.match(tutorAnswerTableFallback(), /\| Step \| Your attempt \|/);
+  assert.doesNotMatch(tutorAnswerTableFallback(), /```|not json/);
+});
+
+test('Tutor source metadata is structured, hidden from text, and capped at three suggested readings', () => {
+  const parsed = parseTutorAnswerTable([
+    'A short explanation.',
+    '<!-- tutor_sources: {"sources":[',
+    '{"type":"user_material","title":"Lecture notes.pdf","detail":"Chapter 2"},',
+    '{"type":"suggested_reading","title":"Reading 1","detail":"topic 1"},',
+    '{"type":"suggested_reading","title":"Reading 2","detail":"topic 2"},',
+    '{"type":"suggested_reading","title":"Reading 3","detail":"topic 3"},',
+    '{"type":"suggested_reading","title":"Reading 4","detail":"topic 4"},',
+    '{"type":"invented_type","title":"Ignored","detail":"Ignored"}',
+    ']} -->'
+  ].join(''));
+
+  assert.equal(parsed.text, 'A short explanation.');
+  assert.deepEqual(parsed.sources, [
+    { type: 'user_material', title: 'Lecture notes.pdf', detail: 'Chapter 2' },
+    { type: 'suggested_reading', title: 'Reading 1', detail: 'topic 1' },
+    { type: 'suggested_reading', title: 'Reading 2', detail: 'topic 2' },
+    { type: 'suggested_reading', title: 'Reading 3', detail: 'topic 3' }
+  ]);
 });
 
 test('document and reference validators retain their request error responses', () => {

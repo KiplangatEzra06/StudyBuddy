@@ -1203,6 +1203,100 @@
       scrollbar-width: thin;
     }
 
+    #panel-tutor .tutor-answer-table {
+      width: 100%;
+      min-width: 0;
+      margin-top: 12px;
+    }
+
+    #panel-tutor .tutor-answer-table h3 {
+      margin: 0 0 8px;
+      color: var(--color-text);
+      font-size: 14px;
+    }
+
+    #panel-tutor .tutor-answer-table-scroll {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      scrollbar-color: var(--color-border) transparent;
+      scrollbar-width: thin;
+    }
+
+    #panel-tutor .tutor-answer-table-grid {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      color: var(--color-text);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    #panel-tutor .tutor-answer-table-grid th,
+    #panel-tutor .tutor-answer-table-grid td {
+      min-width: 130px;
+      padding: 8px;
+      border-right: 1px solid var(--color-border);
+      border-bottom: 1px solid var(--color-border);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    #panel-tutor .tutor-answer-table-grid thead th {
+      background: var(--color-surface-soft);
+      font-weight: 600;
+    }
+
+    #panel-tutor .tutor-answer-table-grid th:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      min-width: 110px;
+      background: var(--color-surface-soft);
+      box-shadow: 1px 0 var(--color-border);
+    }
+
+    #panel-tutor .tutor-answer-table-grid tbody th:first-child {
+      background: var(--color-surface);
+    }
+
+    #panel-tutor .tutor-answer-table-grid input {
+      width: 100%;
+      min-width: 110px;
+      min-height: 36px;
+      padding: 6px 8px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      background: var(--color-surface);
+      color: var(--color-text);
+    }
+
+    #panel-tutor .tutor-answer-table-grid input[readonly] {
+      background: var(--color-surface-soft);
+      color: var(--color-text-muted);
+    }
+
+    #panel-tutor .tutor-answer-table-hint {
+      margin: 8px 0;
+      color: var(--color-text-muted);
+      font-size: 12px;
+    }
+
+    #panel-tutor .tutor-answer-table-actions .btn.btn-primary,
+    #panel-tutor .tutor-answer-table-actions .btn.btn-primary:hover,
+    #panel-tutor .tutor-answer-table-actions .btn.btn-primary:active {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      color: var(--btn-primary-text);
+      box-shadow: none;
+    }
+
     #panel-tutor .assistant-content table {
       width: 100%;
       min-width: 0;

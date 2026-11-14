@@ -43,6 +43,105 @@ function malformedJsonError() {
   return error;
 }
 
+function validateTutorAnswerTable(value) {
+  if (!value || Array.isArray(value) || typeof value !== 'object'
+    || typeof value.title !== 'string'
+    || typeof value.hint !== 'string'
+    || !Array.isArray(value.columns)
+    || value.columns.length < 1
+    || value.columns.length > 8
+    || !value.columns.every(column => typeof column === 'string')
+    || !Array.isArray(value.rows)
+    || value.rows.length < 1
+    || value.rows.length > 12
+    || !value.rows.every(row => row && !Array.isArray(row)
+      && typeof row === 'object'
+      && typeof row.label === 'string'
+      && Array.isArray(row.cells)
+      && row.cells.length === value.columns.length
+      && row.cells.every(cell => typeof cell === 'string'))
+    || !Array.isArray(value.locked_cells)) return null;
+
+  const lockedCells = new Set();
+  for (const cell of value.locked_cells) {
+    if (!Array.isArray(cell) || cell.length !== 2
+      || !Number.isInteger(cell[0]) || !Number.isInteger(cell[1])
+      || cell[0] < 0 || cell[0] >= value.rows.length
+      || cell[1] < 0 || cell[1] >= value.columns.length) return null;
+    const key = `${cell[0]}:${cell[1]}`;
+    if (lockedCells.has(key)) return null;
+    lockedCells.add(key);
+  }
+
+  return {
+    title: value.title.trim(),
+    columns: value.columns.map(column => column.trim()),
+    rows: value.rows.map(row => ({
+      label: row.label.trim(),
+      cells: row.cells.map(cell => cell.trim())
+    })),
+    locked_cells: value.locked_cells,
+    hint: value.hint.trim()
+  };
+}
+
+function parseTutorAnswerTable(content, requireTable = false) {
+  const pattern = /```answer_table[ \t]*\r?\n([\s\S]*?)(?:\r?\n```|$)/gi;
+  const blocks = [...content.matchAll(pattern)];
+  const sourcePattern = /<!--\s*tutor_sources:\s*([\s\S]*?)\s*-->/gi;
+  const sourceBlocks = [...content.matchAll(sourcePattern)];
+  const cleanText = content
+    .replace(pattern, '')
+    .replace(/<!--\s*tutor_sources\b[\s\S]*?(?:-->|$)/gi, '');
+  const text = cleanText.trim();
+  let sources = [];
+  if (sourceBlocks.length === 1) {
+    try {
+      const parsedSources = JSON.parse(sourceBlocks[0][1].trim());
+      if (parsedSources && !Array.isArray(parsedSources) && Array.isArray(parsedSources.sources)) {
+        let suggestedReadingCount = 0;
+        sources = parsedSources.sources.flatMap(source => {
+          if (!source || Array.isArray(source) || typeof source !== 'object'
+            || !['user_material', 'suggested_reading'].includes(source.type)
+            || typeof source.title !== 'string'
+            || typeof source.detail !== 'string') return [];
+          const title = source.title.trim();
+          const detail = source.detail.trim();
+          if (!title || !detail) return [];
+          if (source.type === 'suggested_reading' && suggestedReadingCount >= 3) return [];
+          if (source.type === 'suggested_reading') suggestedReadingCount++;
+          return [{ type: source.type, title, detail }];
+        });
+      }
+    } catch {
+      sources = [];
+    }
+  }
+  if (!blocks.length) {
+    return { text, answerTable: null, sources, invalid: requireTable };
+  }
+  if (blocks.length !== 1) return { text, answerTable: null, sources, invalid: true };
+
+  try {
+    const answerTable = validateTutorAnswerTable(JSON.parse(blocks[0][1].trim()));
+    return answerTable
+      ? { text, answerTable, sources, invalid: false }
+      : { text, answerTable: null, sources, invalid: true };
+  } catch {
+    return { text, answerTable: null, sources, invalid: true };
+  }
+}
+
+function tutorAnswerTableFallback() {
+  return [
+    "I couldn't prepare an editable table. Try the next step in the message box.",
+    '',
+    '| Step | Your attempt |',
+    '| --- | --- |',
+    '| Current step |  |'
+  ].join('\n');
+}
+
 function getDocumentMessages(prompt, document) {
   return [
     { role: 'system', content: prompt },
@@ -261,7 +360,10 @@ module.exports = {
   normalizeGeneratedText,
   parseJsonText,
   parseNotesResponse,
+  parseTutorAnswerTable,
   sendAiError,
+  tutorAnswerTableFallback,
+  validateTutorAnswerTable,
   validateDocument,
   validateReferences
 };

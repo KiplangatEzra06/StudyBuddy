@@ -251,8 +251,114 @@ export function addMsg(role, text, container = $('chat-log'), messageData = {}) 
   return div;
 }
 
+function addTutorAnswerTable(answerTable, messageData, message) {
+  if (!answerTable || typeof answerTable.title !== 'string'
+    || !Array.isArray(answerTable.columns) || answerTable.columns.length < 1 || answerTable.columns.length > 8
+    || !Array.isArray(answerTable.rows) || answerTable.rows.length < 1 || answerTable.rows.length > 12
+    || !answerTable.rows.every(row => row && typeof row.label === 'string'
+      && Array.isArray(row.cells) && row.cells.length === answerTable.columns.length
+      && row.cells.every(cell => typeof cell === 'string'))) return;
+
+  const lockedCells = new Set((Array.isArray(answerTable.locked_cells) ? answerTable.locked_cells : [])
+    .filter(cell => Array.isArray(cell) && cell.length === 2)
+    .map(([row, column]) => `${row}:${column}`));
+  const section = document.createElement('section');
+  section.className = 'tutor-answer-table';
+  const heading = document.createElement('h3');
+  heading.textContent = answerTable.title;
+  section.appendChild(heading);
+
+  const scrollRegion = document.createElement('div');
+  scrollRegion.className = 'tutor-answer-table-scroll';
+  scrollRegion.setAttribute('role', 'region');
+  scrollRegion.setAttribute('aria-label', `${answerTable.title} answer table`);
+  scrollRegion.tabIndex = 0;
+  const table = document.createElement('table');
+  table.className = 'tutor-answer-table-grid';
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  const labelHeader = document.createElement('th');
+  labelHeader.scope = 'col';
+  labelHeader.textContent = 'Step';
+  headerRow.appendChild(labelHeader);
+  answerTable.columns.forEach(column => {
+    const header = document.createElement('th');
+    header.scope = 'col';
+    header.textContent = column;
+    headerRow.appendChild(header);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const inputs = [];
+  answerTable.rows.forEach((row, rowIndex) => {
+    const tableRow = document.createElement('tr');
+    const label = document.createElement('th');
+    label.scope = 'row';
+    label.textContent = row.label;
+    tableRow.appendChild(label);
+    row.cells.forEach((value, columnIndex) => {
+      const cell = document.createElement('td');
+      const input = document.createElement('input');
+      const locked = lockedCells.has(`${rowIndex}:${columnIndex}`);
+      input.type = 'text';
+      input.value = value;
+      input.readOnly = locked;
+      input.setAttribute('aria-label', `${answerTable.title}, ${row.label}, ${answerTable.columns[columnIndex]}`);
+      if (locked) input.setAttribute('aria-readonly', 'true');
+      input.addEventListener('input', () => {
+        row.cells[columnIndex] = input.value;
+        checkButton.disabled = !inputs.some(item => !item.readOnly && item.value.trim());
+        messageData.onAnswerTableChange?.();
+      });
+      inputs.push(input);
+      cell.appendChild(input);
+      tableRow.appendChild(cell);
+    });
+    tbody.appendChild(tableRow);
+  });
+  table.appendChild(tbody);
+  scrollRegion.appendChild(table);
+  section.appendChild(scrollRegion);
+
+  const hint = document.createElement('p');
+  hint.className = 'tutor-answer-table-hint';
+  hint.textContent = answerTable.hint;
+  section.appendChild(hint);
+
+  const actions = document.createElement('div');
+  actions.className = 'tutor-answer-table-actions';
+  const checkButton = document.createElement('button');
+  checkButton.type = 'button';
+  checkButton.className = 'btn btn-primary';
+  checkButton.textContent = 'Check my answers';
+  checkButton.disabled = !inputs.some(input => !input.readOnly && input.value.trim());
+  checkButton.addEventListener('click', () => {
+    const answers = [];
+    answerTable.rows.forEach((row, rowIndex) => row.cells.forEach((value, columnIndex) => {
+      if (value.trim() && !lockedCells.has(`${rowIndex}:${columnIndex}`)) {
+        answers.push({ row: rowIndex, column: columnIndex, value });
+      }
+    }));
+    if (answers.length) {
+      dependencies.sendChat('', 0, {
+        tableSubmission: {
+          title: answerTable.title,
+          columns: answerTable.columns,
+          answers
+        }
+      });
+    }
+  });
+  actions.appendChild(checkButton);
+  section.appendChild(actions);
+  message.appendChild(section);
+}
+
 export function addAssistantMsg(text, sources = [], container = $('chat-log'), messageData = {}) {
   const message = addMsg('assistant', text, container, messageData);
+  addTutorAnswerTable(messageData.answerTable, messageData, message);
   if (sources.length) {
     const details = document.createElement('details');
     details.className = 'message-sources';

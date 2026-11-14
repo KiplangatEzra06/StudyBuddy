@@ -17,6 +17,7 @@ export function renderTutorChatPage() {
     if (message.role === 'assistant') {
       dependencies.addAssistantMsg(message.content, message.sources || [], log, {
         ...message,
+        onAnswerTableChange: persistTutorConversations,
         isLatest: index === latestAssistantIndex
       });
     } else {
@@ -275,6 +276,8 @@ export function setChatRequestStatus(message = '') {
 
 export async function readTutorStream(response, onUpdate) {
   let reply = '';
+  let text;
+  let answerTable = null;
   let sources = [];
   let finished = false;
   const dispatch = block => {
@@ -299,6 +302,8 @@ export async function readTutorStream(response, onUpdate) {
       onUpdate(reply);
     }
     if (typeof event.reply === 'string') reply = event.reply;
+    if (typeof event.text === 'string') text = event.text;
+    if (event.answerTable && typeof event.answerTable === 'object') answerTable = event.answerTable;
     if (Array.isArray(event.sources)) sources = event.sources;
     if (event.done === true) finished = true;
   };
@@ -326,11 +331,14 @@ export async function readTutorStream(response, onUpdate) {
   }
   if (!reply.trim()) throw new Error('The tutor did not return a response. Please try again.');
   if (!finished) throw new Error('The tutor response was interrupted. Please try again.');
-  return { reply, sources };
+  return { reply, text: text ?? reply, answerTable, sources };
 }
 
-export async function sendChat(retryQuestion = '', retryTimestamp = 0) {
-  const q = (retryQuestion || $('chat-input').value).trim();
+export async function sendChat(retryQuestion = '', retryTimestamp = 0, options = {}) {
+  const tableSubmission = options.tableSubmission || null;
+  const q = tableSubmission
+    ? `Check my answers for "${tableSubmission.title}".`
+    : (retryQuestion || $('chat-input').value).trim();
   if (!q || state.tutorChatPending) return;
   if (retryTimestamp) {
     const failedIndex = state.tutorChatHistory.findIndex(message => message.timestamp === retryTimestamp && message.retry);
@@ -346,8 +354,10 @@ export async function sendChat(retryQuestion = '', retryTimestamp = 0) {
   state.tutorChatWakeMessage = '';
   state.tutorChatStreamingReply = '';
   state.tutorChatAbortController = new AbortController();
-  $('chat-input').value = '';
-  $('chat-input').style.height = 'auto';
+  if (!tableSubmission) {
+    $('chat-input').value = '';
+    $('chat-input').style.height = 'auto';
+  }
   $('chat-send').disabled = true;
   $('chat-send').classList.add('hidden');
   $('chat-stop-btn').classList.remove('hidden');
@@ -366,11 +376,25 @@ export async function sendChat(retryQuestion = '', retryTimestamp = 0) {
   renderTutorOverview();
   $('chat-input').focus();
   try {
-    const references = $('tutor-use-material').checked ? dependencies.retrieveStudyReferences(q) : [];
+    const references = !tableSubmission && $('tutor-use-material').checked
+      ? dependencies.retrieveStudyReferences(q)
+      : [];
+    const requestInput = tableSubmission
+      ? JSON.stringify({
+        title: tableSubmission.title,
+        columns: tableSubmission.columns,
+        answers: tableSubmission.answers
+      })
+      : q;
     const res = await dependencies.apiFetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: q, history: state.tutorChatHistory.slice(0, -1), references, stream: true }),
+      body: JSON.stringify({
+        input: requestInput,
+        history: tableSubmission ? [] : state.tutorChatHistory.slice(0, -1),
+        references,
+        stream: true
+      }),
       signal: state.tutorChatAbortController.signal
     });
     if (!res.ok) {
@@ -391,13 +415,16 @@ export async function sendChat(retryQuestion = '', retryTimestamp = 0) {
       }
     }
     if (data?.error) throw new Error(data.error);
-    if (typeof data?.reply !== 'string' || !data.reply.trim()) {
+    const responseText = typeof data?.text === 'string' ? data.text : data?.reply;
+    if ((typeof responseText !== 'string' || !responseText.trim())
+      && !data?.answerTable) {
       throw new Error('The AI did not return a response. Please try again.');
     }
-    const textBlock = normalizeTutorReply(data.reply);
+    const textBlock = normalizeTutorReply(responseText || 'Start with the first step in the table.');
     state.tutorChatHistory.push({
       role: 'assistant',
       content: textBlock,
+      answerTable: data.answerTable || null,
       sources: Array.isArray(data.sources) ? data.sources : [],
       question: q,
       timestamp: Date.now()

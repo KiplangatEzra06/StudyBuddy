@@ -9,7 +9,9 @@ const {
   modelJsonError,
   parseJsonText,
   parseNotesResponse,
+  parseTutorAnswerTable,
   sendAiError,
+  tutorAnswerTableFallback,
   validateDocument,
   validateReferences
 } = require('../services/ai-content');
@@ -30,6 +32,80 @@ async function aiHealthCheck(req, res) {
   }
 }
 
+function normalizeAvailableMaterials(materials, references) {
+  const sourceItems = Array.isArray(materials) ? materials : [];
+  if (sourceItems.length) {
+    return sourceItems.slice(0, 8).map((item, index) => ({
+      id: item && typeof item.id !== 'undefined' ? String(item.id) : `material-${index}`,
+      fileName: typeof item.fileName === 'string' ? item.fileName.trim() : '',
+      sectionLabels: Array.isArray(item.sectionLabels)
+        ? item.sectionLabels
+            .filter(label => typeof label === 'string')
+            .map(label => label.trim())
+            .filter(Boolean)
+        : [],
+      excerpt: typeof item.excerpt === 'string' ? item.excerpt.slice(0, 1000).trim() : ''
+    })).filter(item => item.fileName && item.sectionLabels.length);
+  }
+
+  return references.slice(0, 8).map(reference => ({
+    id: typeof reference.sourceId !== 'undefined' ? String(reference.sourceId) : reference.title,
+    fileName: reference.title,
+    sectionLabels: [
+      typeof reference.sectionLabel === 'string' ? reference.sectionLabel.trim() : '',
+      typeof reference.section === 'string' ? reference.section.trim() : '',
+      typeof reference.label === 'string' ? reference.label.trim() : ''
+    ].filter(Boolean).slice(0, 6),
+    excerpt: reference.text.slice(0, 1000)
+  })).filter(item => item.fileName && item.sectionLabels.length);
+}
+
+function validateTutorSources(sources, materials) {
+  if (!Array.isArray(sources)) return [];
+  const validMaterials = new Map();
+  for (const material of materials) {
+    if (!material || typeof material.fileName !== 'string') continue;
+    const labelSet = new Set((Array.isArray(material.sectionLabels) ? material.sectionLabels : [])
+      .filter(label => typeof label === 'string')
+      .map(label => label.trim().toLowerCase())
+      .filter(Boolean));
+    validMaterials.set(material.fileName.trim().toLowerCase(), labelSet);
+  }
+
+  const validSources = [];
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    if (source.type !== 'user_material') {
+      validSources.push(source);
+      continue;
+    }
+
+    const title = typeof source.title === 'string' ? source.title.trim() : '';
+    const detail = typeof source.detail === 'string' ? source.detail.trim() : '';
+    if (!title || !detail) {
+      if (process.env.NODE_ENV === 'development') console.warn('Dropped tutor user_material source with missing title/detail.', source);
+      continue;
+    }
+
+    const labels = validMaterials.get(title.toLowerCase());
+    const allowed = labels && labels.has(detail.toLowerCase());
+    if (allowed) {
+      validSources.push(source);
+      continue;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Dropped tutor user_material source because it was not in the supplied material catalogue.', {
+        title,
+        detail,
+        catalogue: [...validMaterials.keys()]
+      });
+    }
+  }
+
+  return validSources;
+}
+
 async function tutor(req, res) {
   const input = typeof req.body.input === 'string' ? req.body.input.trim() : '';
   const history = Array.isArray(req.body.history) ? req.body.history : [];
@@ -44,7 +120,12 @@ async function tutor(req, res) {
     .filter(message => ['user', 'assistant'].includes(message?.role) && typeof message.content === 'string')
     .map(message => ({ role: message.role, content: message.content.slice(0, 4000) }));
   messages.push({ role: 'user', content: input });
-  const systemMessages = [{ role: 'system', content: prompts.tutor }];
+  const providedMaterials = normalizeAvailableMaterials(req.body.materials, references);
+  const systemMessages = [
+    { role: 'system', content: prompts.tutor },
+    { role: 'system', content: prompts.tutorSources },
+    ...(providedMaterials.length ? [{ role: 'system', content: `${prompts.tutorMaterialCatalogue}\n\n<available_materials>\n${JSON.stringify(providedMaterials).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}\n</available_materials>` }] : [])
+  ];
   if (references.length) {
     const sourceMaterial = references.map(reference => ({
       label: getReferenceLabel(reference),
@@ -80,25 +161,40 @@ async function tutor(req, res) {
   }
 
   try {
-    const reply = await generate({
-      messages: [...systemMessages, ...messages],
+    const tutorMessages = [...systemMessages, ...messages];
+    let responseText = await generate({
+      messages: tutorMessages,
       maxTokens: 1000,
-      ...(streaming ? {
-        signal: streamController.signal,
-        onToken: token => {
-          if (!res.destroyed) res.write(`data: ${JSON.stringify({ token })}\n\n`);
-        }
-      } : {})
+      signal: streamController?.signal
     });
+    let parsedReply = parseTutorAnswerTable(responseText);
+    if (parsedReply.invalid) {
+      responseText = await generate({
+        messages: [
+          ...tutorMessages,
+          { role: 'assistant', content: responseText },
+          {
+            role: 'user',
+            content: 'Fix only the answer_table JSON block. Return one valid fenced answer_table block with a title, 1-8 string columns, 1-12 rows each with a string label and one string cell per column, string hint, and in-bounds locked_cells pairs. Leave all student-answer cells blank; do not include a solution or extra text.'
+          }
+        ],
+        maxTokens: 1000,
+        signal: streamController?.signal
+      });
+      parsedReply = parseTutorAnswerTable(responseText, true);
+    }
+
+    const text = parsedReply.invalid
+      ? tutorAnswerTableFallback()
+      : parsedReply.text || (parsedReply.answerTable ? 'Start with the first step in the table.' : '');
+    if (parsedReply.invalid && process.env.NODE_ENV === 'development') {
+      console.warn('Tutor answer table remained invalid after one repair attempt; using a read-only fallback.');
+    }
     const result = {
-      reply,
-      sources: references.map(reference => ({
-        type: reference.type,
-        title: reference.title,
-        ...(reference.course !== undefined ? { course: reference.course } : {}),
-        ...(reference.sourceId !== undefined ? { sourceId: reference.sourceId } : {}),
-        label: getReferenceLabel(reference)
-      }))
+      reply: text,
+      text,
+      answerTable: parsedReply.invalid ? null : parsedReply.answerTable,
+      sources: validateTutorSources(parsedReply.sources, providedMaterials)
     };
     if (streaming) {
       if (!res.destroyed) {

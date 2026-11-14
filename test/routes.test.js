@@ -31,12 +31,15 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
   assert.equal(login.status, 200);
 
   const aiRequests = [];
+  let aiResponses = ['OK'];
+  let aiResponseIndex = 0;
   const mockAiServer = http.createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     aiRequests.push(JSON.parse(body));
+    const content = aiResponses[Math.min(aiResponseIndex++, aiResponses.length - 1)];
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }));
+    res.end(JSON.stringify({ choices: [{ message: { content } }] }));
   });
   await new Promise(resolve => mockAiServer.listen(0, '127.0.0.1', resolve));
   process.env.AI_BASE_URL = `http://127.0.0.1:${mockAiServer.address().port}/v1`;
@@ -49,6 +52,65 @@ test('extracted routes and frontend modules are mounted correctly', async () => 
     assert.deepEqual(health.body, { status: 'ok', model: 'health-test-model' });
     assert.deepEqual(aiRequests[0].messages, [
       { role: 'user', content: 'Reply with exactly the word OK on one line.' }
+    ]);
+
+    aiResponses = [
+      'Try the first step.\n\n```answer_table\n{"title":"Trace","columns":["Input"],"rows":[{"label":"Step 1","cells":["","extra"]}],"locked_cells":[],"hint":"Apply the rule."}\n```',
+      'Try applying the rule to the first step.\n\n```answer_table\n{"title":"Trace","columns":["Input","Output"],"rows":[{"label":"Step 1","cells":["x",""]}],"locked_cells":[[0,0]],"hint":"Apply the rule once."}\n```'
+    ];
+    aiResponses[1] += '\n<!-- tutor_sources: {"sources":[{"type":"suggested_reading","title":"Official Documentation","detail":"truth tables"}]} -->';
+    aiResponseIndex = 0;
+    const tutor = await agent.post('/api/ai').set(headers).send({ input: 'Make a trace table.', history: [] });
+    assert.equal(tutor.status, 200);
+    assert.match(aiRequests[1].messages[0].content, /Begin with a short hint, then give per-cell or per-row feedback/);
+    assert.match(aiRequests[1].messages[0].content, /do not create another table or answer_table block/);
+    assert.match(aiRequests[1].messages[0].content, /Never provide a replacement or missing answer/);
+    assert.match(aiRequests[1].messages[0].content, /end by asking the student to try the table again/);
+    assert.match(aiRequests[1].messages[1].content, /exact provided file name as title/);
+    assert.match(aiRequests[1].messages[1].content, /no more than 3/);
+    assert.match(aiRequests[1].messages[1].content, /URLs, page numbers, ISBNs/);
+    assert.equal(tutor.body.reply, 'Try applying the rule to the first step.');
+    assert.equal(tutor.body.text, tutor.body.reply);
+    assert.deepEqual(tutor.body.answerTable, {
+      title: 'Trace',
+      columns: ['Input', 'Output'],
+      rows: [{ label: 'Step 1', cells: ['x', ''] }],
+      locked_cells: [[0, 0]],
+      hint: 'Apply the rule once.'
+    });
+    assert.deepEqual(tutor.body.sources, [{
+      type: 'suggested_reading',
+      title: 'Official Documentation',
+      detail: 'truth tables'
+    }]);
+    assert.doesNotMatch(tutor.body.text, /tutor_sources|Official Documentation/);
+    assert.match(aiRequests[2].messages.at(-1).content, /Fix only the answer_table JSON block/);
+
+    aiResponses = [
+      'Unsafe prose\n\n```answer_table\n{"title":"bad"}\n```',
+      'Private model error: raw JSON {"answer":"secret"}'
+    ];
+    aiResponseIndex = 0;
+    const fallback = await agent.post('/api/ai').set(headers).send({ input: 'Make a trace table.', history: [] });
+    assert.equal(fallback.status, 200);
+    assert.equal(fallback.body.answerTable, null);
+    assert.match(fallback.body.text, /\| Step \| Your attempt \|/);
+    assert.doesNotMatch(fallback.body.text, /Unsafe prose|Private model error|raw JSON|secret/);
+
+    aiResponses = [`The key idea is the rule.
+
+<!-- tutor_sources: {"sources":[{"type":"user_material","title":"Lecture notes.pdf","detail":"Chapter 2"},{"type":"user_material","title":"Missing.pdf","detail":"Unknown"},{"type":"suggested_reading","title":"Official Documentation","detail":"truth tables"}]} -->`];
+    aiResponseIndex = 0;
+    const validatedSources = await agent.post('/api/ai').set(headers).send({
+      input: 'Explain the rule.',
+      history: [],
+      references: [],
+      materials: [{ id: 'note-1', fileName: 'Lecture notes.pdf', sectionLabels: ['Chapter 2'] }]
+    });
+    assert.equal(validatedSources.status, 200);
+    assert.deepEqual(validatedSources.body.sources, [
+      { type: 'user_material', title: 'Lecture notes.pdf', detail: 'Chapter 2' },
+      { type: 'suggested_reading', title: 'Official Documentation', detail: 'truth tables' }
     ]);
   } finally {
     await new Promise((resolve, reject) => {
